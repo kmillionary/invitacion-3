@@ -99,7 +99,7 @@ export interface SpinResolution {
   setKissShield?: boolean;
   consumeKissShield?: boolean;
   startsJackpot?: boolean;
-  audioCue?: "coins" | "kiss" | "special-price" | "power-up" | "jackpot" | "purchase";
+  audioCue?: "coins" | "kiss" | "robamonedas" | "special-price" | "power-up" | "jackpot" | "purchase";
   message: string;
   tone: "win" | "loss" | "neutral" | "special";
   opensSurprise?: boolean;

@@ -4,6 +4,28 @@ import type { GameState, WheelSegment } from "../state/types";
 
 const FULL_ROTATION = Math.PI * 2;
 
+interface ResourceFlyToCounterConfig {
+  icon: string;
+  amount: number;
+  color: string;
+  labelPrefix?: string;
+  targetViewportPoint: {
+    x: number;
+    y: number;
+  };
+}
+
+interface ResourceFlyFromCounterConfig {
+  icon: string;
+  amount: number;
+  color: string;
+  labelPrefix?: string;
+  sourceViewportPoint: {
+    x: number;
+    y: number;
+  };
+}
+
 export class RouletteScene extends Phaser.Scene {
   private wheelContainer?: Phaser.GameObjects.Container;
   private messageText?: Phaser.GameObjects.Text;
@@ -191,6 +213,228 @@ export class RouletteScene extends Phaser.Scene {
           resolve();
         },
       });
+    });
+  }
+
+  playResourceFlyToCounter(config: ResourceFlyToCounterConfig): void {
+    if (!this.wheelContainer || config.amount <= 0) {
+      return;
+    }
+
+    const canvas = this.game.canvas;
+    const canvasRect = canvas.getBoundingClientRect();
+    if (canvasRect.width <= 0 || canvasRect.height <= 0) {
+      return;
+    }
+
+    const targetX = ((config.targetViewportPoint.x - canvasRect.left) / canvasRect.width) * this.scale.width;
+    const targetY = ((config.targetViewportPoint.y - canvasRect.top) / canvasRect.height) * this.scale.height;
+
+    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+      return;
+    }
+
+    const originX = this.wheelContainer.x;
+    const originY = this.wheelContainer.y;
+    const burstCount = Phaser.Math.Clamp(Math.round(config.amount), 6, 10);
+    const flightDuration = Phaser.Math.Between(700, 950);
+    const label = this.add.text(originX, originY - 18, `${config.labelPrefix ?? "+"}${config.amount}`, {
+      fontFamily: "\"Fredoka\", sans-serif",
+      fontSize: "30px",
+      color: config.color,
+      stroke: "#fff8f0",
+      strokeThickness: 5,
+    });
+    label.setOrigin(0.5);
+    label.setDepth(20);
+
+    this.tweens.add({
+      targets: label,
+      y: originY - 72,
+      alpha: 0,
+      scale: 1.08,
+      duration: 820,
+      ease: "Cubic.easeOut",
+      onComplete: () => {
+        label.destroy();
+      },
+    });
+
+    for (let index = 0; index < burstCount; index += 1) {
+      const icon = this.add.text(originX, originY, config.icon, {
+        fontFamily: "\"Fredoka\", sans-serif",
+        fontSize: `${Phaser.Math.Between(24, 32)}px`,
+      });
+      icon.setOrigin(0.5);
+      icon.setDepth(19);
+
+      const burstAngle = Phaser.Math.FloatBetween(-2.5, -0.65);
+      const burstDistance = Phaser.Math.Between(32, 84);
+      const burstX = originX + Math.cos(burstAngle) * burstDistance;
+      const burstY = originY + Math.sin(burstAngle) * burstDistance;
+      const midX = Phaser.Math.Linear(burstX, targetX, 0.35) + Phaser.Math.Between(-36, 36);
+      const midY = Phaser.Math.Linear(burstY, targetY, 0.35) - Phaser.Math.Between(20, 64);
+
+      this.tweens.add({
+        targets: icon,
+        x: burstX,
+        y: burstY,
+        scale: 1.12,
+        duration: Phaser.Math.Between(120, 180),
+        ease: "Quad.easeOut",
+        onComplete: () => {
+          this.tweens.addCounter({
+            from: 0,
+            to: 1,
+            duration: flightDuration,
+            ease: "Cubic.easeInOut",
+            onUpdate: (tween) => {
+              const value = tween.getValue() ?? 0;
+              const curveX = Phaser.Math.Interpolation.CatmullRom([burstX, midX, targetX], value);
+              const curveY = Phaser.Math.Interpolation.CatmullRom([burstY, midY, targetY], value);
+              icon.setPosition(curveX, curveY);
+              icon.setScale(Phaser.Math.Linear(1.12, 0.68, value));
+              icon.setAlpha(Phaser.Math.Linear(1, 0.8, value));
+            },
+            onComplete: () => {
+              this.tweens.add({
+                targets: icon,
+                scale: 0.2,
+                alpha: 0,
+                duration: 110,
+                onComplete: () => {
+                  icon.destroy();
+                },
+              });
+            },
+          });
+        },
+      });
+    }
+
+    const pulseRing = this.add.circle(targetX, targetY, 12, Phaser.Display.Color.HexStringToColor(config.color).color, 0.3);
+    pulseRing.setDepth(18);
+    this.tweens.add({
+      targets: pulseRing,
+      scale: 2.4,
+      alpha: 0,
+      duration: 340,
+      delay: flightDuration - 120,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        pulseRing.destroy();
+      },
+    });
+  }
+
+  playResourceFlyFromCounter(config: ResourceFlyFromCounterConfig): void {
+    if (!this.wheelContainer || config.amount <= 0) {
+      return;
+    }
+
+    const canvas = this.game.canvas;
+    const canvasRect = canvas.getBoundingClientRect();
+    if (canvasRect.width <= 0 || canvasRect.height <= 0) {
+      return;
+    }
+
+    const sourceX = ((config.sourceViewportPoint.x - canvasRect.left) / canvasRect.width) * this.scale.width;
+    const sourceY = ((config.sourceViewportPoint.y - canvasRect.top) / canvasRect.height) * this.scale.height;
+
+    if (!Number.isFinite(sourceX) || !Number.isFinite(sourceY)) {
+      return;
+    }
+
+    const targetX = this.wheelContainer.x;
+    const targetY = this.wheelContainer.y;
+    const burstCount = Phaser.Math.Clamp(Math.round(config.amount), 6, 10);
+    const flightDuration = Phaser.Math.Between(720, 930);
+    const label = this.add.text(sourceX, sourceY - 18, `${config.labelPrefix ?? "-"}${config.amount}`, {
+      fontFamily: "\"Fredoka\", sans-serif",
+      fontSize: "30px",
+      color: config.color,
+      stroke: "#fff8f0",
+      strokeThickness: 5,
+    });
+    label.setOrigin(0.5);
+    label.setDepth(20);
+
+    this.tweens.add({
+      targets: label,
+      y: sourceY - 60,
+      alpha: 0,
+      scale: 1.08,
+      duration: 760,
+      ease: "Cubic.easeOut",
+      onComplete: () => {
+        label.destroy();
+      },
+    });
+
+    for (let index = 0; index < burstCount; index += 1) {
+      const icon = this.add.text(sourceX, sourceY, config.icon, {
+        fontFamily: "\"Fredoka\", sans-serif",
+        fontSize: `${Phaser.Math.Between(24, 32)}px`,
+      });
+      icon.setOrigin(0.5);
+      icon.setDepth(19);
+
+      const driftAngle = Phaser.Math.FloatBetween(-2.2, -0.9);
+      const driftDistance = Phaser.Math.Between(18, 42);
+      const driftX = sourceX + Math.cos(driftAngle) * driftDistance;
+      const driftY = sourceY + Math.sin(driftAngle) * driftDistance;
+      const midX = Phaser.Math.Linear(driftX, targetX, 0.42) + Phaser.Math.Between(-48, 48);
+      const midY = Phaser.Math.Linear(driftY, targetY, 0.42) + Phaser.Math.Between(-24, 56);
+
+      this.tweens.add({
+        targets: icon,
+        x: driftX,
+        y: driftY,
+        scale: 1.04,
+        duration: Phaser.Math.Between(110, 170),
+        ease: "Quad.easeOut",
+        onComplete: () => {
+          this.tweens.addCounter({
+            from: 0,
+            to: 1,
+            duration: flightDuration,
+            ease: "Cubic.easeInOut",
+            onUpdate: (tween) => {
+              const value = tween.getValue() ?? 0;
+              const curveX = Phaser.Math.Interpolation.CatmullRom([driftX, midX, targetX], value);
+              const curveY = Phaser.Math.Interpolation.CatmullRom([driftY, midY, targetY], value);
+              icon.setPosition(curveX, curveY);
+              icon.setScale(Phaser.Math.Linear(1.04, 0.62, value));
+              icon.setAlpha(Phaser.Math.Linear(1, 0.78, value));
+            },
+            onComplete: () => {
+              this.tweens.add({
+                targets: icon,
+                scale: 0.2,
+                alpha: 0,
+                duration: 110,
+                onComplete: () => {
+                  icon.destroy();
+                },
+              });
+            },
+          });
+        },
+      });
+    }
+
+    const pulseRing = this.add.circle(targetX, targetY, 16, Phaser.Display.Color.HexStringToColor(config.color).color, 0.28);
+    pulseRing.setDepth(18);
+    this.tweens.add({
+      targets: pulseRing,
+      scale: 0.4,
+      alpha: 0,
+      duration: 320,
+      delay: flightDuration - 120,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        pulseRing.destroy();
+      },
     });
   }
 

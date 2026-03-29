@@ -202,19 +202,19 @@ button {
 .arcade-upgrades__chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .arcade-upgrade-chip {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   border: 1px solid rgba(255, 210, 120, 0.35);
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.08);
   color: white;
   display: grid;
   place-items: center;
-  font-size: 1rem;
+  font-size: 0.85rem;
   cursor: pointer;
 }
 

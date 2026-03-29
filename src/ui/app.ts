@@ -75,6 +75,69 @@ export class RomanticRouletteApp {
 
   constructor(private root: HTMLElement) {}
 
+  private getCounterCenter(counterName: "coins" | "owed-kisses" | "invested-kisses"): { x: number; y: number } | null {
+    const counter = this.uiRoot?.querySelector<HTMLElement>(`[data-counter='${counterName}']`);
+    if (!counter) {
+      return null;
+    }
+
+    const rect = counter.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+  }
+
+  private playSpinResultFlyAnimation(resolution: { coinsDelta?: number; debtDelta?: number; coinsLoss?: number; opensSurprise?: boolean }): void {
+    if (!this.game || resolution.opensSurprise) {
+      return;
+    }
+
+    const scene = this.game.scene.getScene("roulette") as RouletteScene | undefined;
+    if (!scene) {
+      return;
+    }
+
+    const latestState = store.getState();
+
+    if (typeof resolution.coinsDelta === "number" && latestState.lastCoinReward > 0) {
+      const coinsTarget = this.getCounterCenter("coins");
+      if (coinsTarget) {
+        scene.playResourceFlyToCounter({
+          icon: "🪙",
+          amount: latestState.lastCoinReward,
+          color: "#f4b942",
+          targetViewportPoint: coinsTarget,
+        });
+      }
+    }
+
+    if (typeof resolution.debtDelta === "number" && resolution.debtDelta > 0) {
+      const kissesTarget = this.getCounterCenter("owed-kisses");
+      if (kissesTarget) {
+        scene.playResourceFlyToCounter({
+          icon: "💋",
+          amount: resolution.debtDelta,
+          color: "#ef476f",
+          targetViewportPoint: kissesTarget,
+        });
+      }
+    }
+
+    if (typeof resolution.coinsLoss === "number" && resolution.coinsLoss > 0) {
+      const coinsSource = this.getCounterCenter("coins");
+      if (coinsSource) {
+        scene.playResourceFlyFromCounter({
+          icon: "🪙",
+          amount: resolution.coinsLoss,
+          color: "#7b2cbf",
+          labelPrefix: "-",
+          sourceViewportPoint: coinsSource,
+        });
+      }
+    }
+  }
+
   mount(): void {
     this.root.innerHTML = `
       <div class="main-shell">
@@ -111,10 +174,11 @@ export class RomanticRouletteApp {
 
     const segment = this.pickWeightedSegment();
     store.beginSpin(segment.id);
-    audioManager.playSpin(store.getState());
+    audioManager.playSpin(store.getState(), store.getSpinDurationMs());
 
     const scene = this.game.scene.getScene("roulette") as RouletteScene;
     await scene.spinToSegment(segment);
+    audioManager.stopSpin();
     const resolution = store.resolveSpin(segment.id);
 
     if (resolution) {
@@ -136,6 +200,7 @@ export class RomanticRouletteApp {
       });
 
       scene.pulseTone(resolution.tone);
+      this.playSpinResultFlyAnimation(resolution);
 
       if (resolution.opensSurprise) {
         this.clearSurpriseTimers();
@@ -255,15 +320,15 @@ export class RomanticRouletteApp {
 
     this.uiRoot.innerHTML = `
       <header class="top-strip">
-        <div class="icon-counter">
+        <div class="icon-counter" data-counter="invested-kisses">
           <span class="icon-counter__emoji">💋</span>
           <strong>${state.investedKisses}</strong>
         </div>
-        <div class="icon-counter">
+        <div class="icon-counter" data-counter="owed-kisses">
           <span class="icon-counter__emoji">😏</span>
           <strong>${state.owedKisses}</strong>
         </div>
-        <div class="icon-counter">
+        <div class="icon-counter" data-counter="coins">
           <span class="icon-counter__emoji">🪙</span>
           <strong>${state.coins}</strong>
         </div>

@@ -58,6 +58,7 @@ const createToneDataUri = (
 };
 
 export class AudioManager {
+  private readonly baseSpinDurationMs = 3750;
   private spin = new Howl({
     src: ["/spin.mp3", createToneDataUri(180, 0.18, 0.3)],
     volume: 0.65,
@@ -76,6 +77,11 @@ export class AudioManager {
   private unlock = new Howl({
     src: ["/special-price.mp3", createToneDataUri(880, 0.3, 0.3)],
     volume: 0.55,
+    html5: true,
+  });
+  private robamonedas = new Howl({
+    src: ["/robamonedas.mp3", createToneDataUri(180, 0.4, 0.32)],
+    volume: 0.58,
     html5: true,
   });
   private powerUp = new Howl({
@@ -116,17 +122,24 @@ export class AudioManager {
     }
   }
 
-  playSpin(state: GameState): void {
+  playSpin(state: GameState, spinDurationMs = this.baseSpinDurationMs): void {
     if (state.audioEnabled) {
-      this.spin.play();
+      const rate = Math.min(2, Math.max(0.75, this.baseSpinDurationMs / Math.max(1, spinDurationMs)));
+      this.spin.stop();
+      const soundId = this.spin.play();
+      this.spin.rate(rate, soundId);
     }
+  }
+
+  stopSpin(): void {
+    this.spin.stop();
   }
 
   playTone(
     tone: GameState["lastOutcomeTone"],
     state: GameState,
-    audioCue?: "coins" | "kiss" | "special-price" | "power-up" | "jackpot" | "purchase",
-  ): "coins" | "kiss-1" | "kiss-2" | "kiss-3" | "special-price" | "power-up" | "jackpot" | "purchase" | "none" {
+    audioCue?: "coins" | "kiss" | "robamonedas" | "special-price" | "power-up" | "jackpot" | "purchase",
+  ): "coins" | "kiss-1" | "kiss-2" | "kiss-3" | "robamonedas" | "special-price" | "power-up" | "jackpot" | "purchase" | "none" {
     if (!state.audioEnabled) {
       return "none";
     }
@@ -134,6 +147,9 @@ export class AudioManager {
     if (audioCue === "jackpot") {
       this.jackpot.play();
       return "jackpot";
+    } else if (audioCue === "robamonedas") {
+      this.robamonedas.play();
+      return "robamonedas";
     } else if (audioCue === "purchase") {
       this.purchase.play();
       return "purchase";

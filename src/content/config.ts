@@ -281,7 +281,7 @@ const createCoinStealResolution = (
         breaksCombo: true,
         comboSource: "robamonedas",
         clearDoubleStake: state.doubleStakeNextSpin,
-        audioCue: "kiss",
+        audioCue: "robamonedas",
         message: "Robamonedas paso, pero no encontro monedas que llevarse.",
         tone: "loss",
       };
@@ -296,7 +296,7 @@ const createCoinStealResolution = (
       breaksCombo: true,
       comboSource: "robamonedas",
       clearDoubleStake: state.doubleStakeNextSpin,
-      audioCue: "kiss",
+      audioCue: "robamonedas",
       message: formula,
       tone: "loss",
     };
