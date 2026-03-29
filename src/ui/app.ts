@@ -333,7 +333,7 @@ export class RomanticRouletteApp {
       ${
         state.refillModalOpen
           ? `
-            <div class="modal-scrim">
+            <div class="modal-scrim" data-action="dismiss-modal" data-dismiss-action="close-refill">
               <section class="refill-modal">
                 <div class="onboarding-hero onboarding-hero--compact">
                   <span class="onboarding-hero__eyebrow">Sigue jugando</span>
@@ -382,7 +382,7 @@ export class RomanticRouletteApp {
       const isInitialFlow = !state.instructionsSeen;
 
       return `
-        <div class="modal-scrim onboarding-scrim">
+        <div class="modal-scrim onboarding-scrim" data-action="dismiss-modal" data-dismiss-action="${isInitialFlow ? "finish-instructions" : "close-help"}">
           <section class="onboarding-modal onboarding-modal--intro" aria-label="Instructivo del juego">
             <div class="onboarding-hero">
               <span class="onboarding-hero__eyebrow">${page.eyebrow}</span>
@@ -558,7 +558,7 @@ export class RomanticRouletteApp {
     const isRewardsTab = state.shopTab === "rewards";
 
     return `
-      <div class="modal-scrim shop-scrim">
+      <div class="modal-scrim shop-scrim" data-action="dismiss-modal" data-dismiss-action="close-shop">
         <section class="shop-modal" aria-label="Tienda romantica">
           <div class="shop-modal__header">
             <div class="shop-copy">
@@ -633,12 +633,14 @@ export class RomanticRouletteApp {
         ? "Comprada"
         : card.isSuperseded
           ? "Superada"
+          : card.isBlockedByPrerequisite
+            ? "Bloqueada"
           : card.canAfford
             ? "Comprar"
             : `Faltan ${upgrade.price - store.getState().coins}`;
 
     return `
-      <article class="shop-card shop-card--upgrade ${card.isActive || card.isPurchased ? "is-bought" : ""} ${card.isSuperseded ? "is-locked" : ""}">
+      <article class="shop-card shop-card--upgrade ${card.isActive || card.isPurchased ? "is-bought" : ""} ${card.isSuperseded || card.isBlockedByPrerequisite ? "is-locked" : ""}">
         ${upgradeBadge ? `<span class="shop-card__badge ${upgradeBadge.className}">${upgradeBadge.label}</span>` : ""}
         <div class="shop-card__art shop-card__art--upgrade" aria-hidden="true">${upgrade.emoji}</div>
         <strong class="shop-card__title">${upgrade.name}</strong>
@@ -719,6 +721,38 @@ export class RomanticRouletteApp {
   }
 
   private attachEvents(): void {
+    this.uiRoot?.querySelectorAll<HTMLElement>("[data-action='dismiss-modal']").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        if (event.target !== element) {
+          return;
+        }
+
+        const dismissAction = element.dataset.dismissAction;
+        if (!dismissAction) {
+          return;
+        }
+
+        if (dismissAction === "close-shop") {
+          store.closeShop();
+          return;
+        }
+
+        if (dismissAction === "close-refill") {
+          store.closeRefillModal();
+          return;
+        }
+
+        if (dismissAction === "close-help") {
+          store.closeHelp();
+          return;
+        }
+
+        if (dismissAction === "finish-instructions") {
+          store.finishInstructions();
+        }
+      });
+    });
+
     this.uiRoot?.querySelectorAll<HTMLElement>("[data-action='continue-intro']").forEach((element) => {
       element.addEventListener("click", () => {
         store.dismissInstructions();

@@ -123,9 +123,15 @@ export interface SurpriseOption {
 }
 
 export interface GameState {
+  sessionStartedAt: number;
   investedKisses: number;
   owedKisses: number;
   coins: number;
+  totalCoinsEarned: number;
+  totalCoinsSpent: number;
+  totalCoinsLost: number;
+  totalJackpotsTriggered: number;
+  totalSurprisesOpened: number;
   committedTotal: number;
   playerName: string;
   commitmentAccepted: boolean;
@@ -167,6 +173,7 @@ export interface GameState {
   surpriseStage: "hidden" | "pending" | "choosing" | "revealing" | "revealed";
   selectedSurpriseCardIndex: number | null;
   revealedSurpriseOption: SurpriseOption | null;
+  wheelSegmentOrder: string[];
   invitationOpen: boolean;
   shopOpen: boolean;
   refillModalOpen: boolean;
@@ -192,6 +199,7 @@ export interface UpgradeCardViewModel {
   isPurchased: boolean;
   isActive: boolean;
   isSuperseded: boolean;
+  isBlockedByPrerequisite: boolean;
   canAfford: boolean;
   canBuy: boolean;
   displayPrice: number;

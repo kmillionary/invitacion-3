@@ -16,11 +16,47 @@ const REPLACEABLE_FAMILIES = new Set<UpgradeFamily>([
 const initialUnlockedRewards = rewardCatalog
   .filter((reward) => reward.tier === 1)
   .map((reward) => reward.id);
+const wheelSegmentIds = wheelSegments.map((segment) => segment.id);
+
+const shuffle = <T>(items: T[]): T[] => {
+  const copy = [...items];
+
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+
+  return copy;
+};
+
+const createWheelSegmentOrder = (): string[] => shuffle(wheelSegmentIds);
+
+const normalizeWheelSegmentOrder = (order?: string[]): string[] => {
+  if (!order) {
+    return createWheelSegmentOrder();
+  }
+
+  const filtered = order.filter((segmentId, index, collection) =>
+    wheelSegmentIds.includes(segmentId) && collection.indexOf(segmentId) === index
+  );
+
+  if (filtered.length !== wheelSegmentIds.length) {
+    return createWheelSegmentOrder();
+  }
+
+  return filtered;
+};
 
 const initialState = (): GameState => ({
+  sessionStartedAt: Date.now(),
   investedKisses: 0,
   owedKisses: 0,
   coins: 0,
+  totalCoinsEarned: 0,
+  totalCoinsSpent: 0,
+  totalCoinsLost: 0,
+  totalJackpotsTriggered: 0,
+  totalSurprisesOpened: 0,
   committedTotal: 0,
   playerName: "",
   commitmentAccepted: false,
@@ -62,6 +98,7 @@ const initialState = (): GameState => ({
   surpriseStage: "hidden",
   selectedSurpriseCardIndex: null,
   revealedSurpriseOption: null,
+  wheelSegmentOrder: createWheelSegmentOrder(),
   invitationOpen: false,
   shopOpen: false,
   refillModalOpen: false,
@@ -118,6 +155,8 @@ const loadState = (): GameState => {
       ...initialState(),
       ...parsed,
       purchasedUpgradeIds,
+      sessionStartedAt: parsed.sessionStartedAt ?? Date.now(),
+      wheelSegmentOrder: normalizeWheelSegmentOrder(parsed.wheelSegmentOrder),
       shopTab: parsed.shopTab ?? "rewards",
       helpOpen: false,
       instructionPage: 0,
@@ -228,6 +267,26 @@ export class GameStore {
     return this.getPurchasedUpgradeItems(state).some((upgrade) =>
       upgrade.family === targetUpgrade.family && upgrade.level > targetUpgrade.level
     );
+  }
+
+  private getPreviousFamilyUpgrade(targetUpgrade: UpgradeItem): UpgradeItem | null {
+    if (targetUpgrade.level <= 1) {
+      return null;
+    }
+
+    return upgradeCatalog.find((upgrade) =>
+      upgrade.family === targetUpgrade.family && upgrade.level === targetUpgrade.level - 1
+    ) ?? null;
+  }
+
+  private isUpgradeBlockedByPrerequisite(targetUpgrade: UpgradeItem, state = this.state): boolean {
+    const previousUpgrade = this.getPreviousFamilyUpgrade(targetUpgrade);
+
+    if (!previousUpgrade) {
+      return false;
+    }
+
+    return !state.purchasedUpgradeIds.includes(previousUpgrade.id);
   }
 
   private normalizePurchasedUpgradeIds(nextUpgradeId: string, state = this.state): string[] {
@@ -347,6 +406,34 @@ export class GameStore {
     return [...activeByFamily.values()].sort((left, right) => left.price - right.price);
   }
 
+  getMetricsSnapshot(): Record<string, unknown> {
+    const state = this.state;
+    const elapsedMs = Math.max(0, Date.now() - state.sessionStartedAt);
+
+    return {
+      tiempoTotalMs: elapsedMs,
+      tiempoTotalTexto: `${Math.floor(elapsedMs / 60000)}m ${Math.floor((elapsedMs % 60000) / 1000)}s`,
+      girosTotales: state.spinCount,
+      besosInvertidosTotal: state.committedTotal,
+      besosDisponibles: state.investedKisses,
+      besosAdeudados: state.owedKisses,
+      monedasActuales: state.coins,
+      monedasTotalesGanadas: state.totalCoinsEarned,
+      monedasTotalesGastadas: state.totalCoinsSpent,
+      monedasTotalesPerdidas: state.totalCoinsLost,
+      picoMonedas: state.highestCoinsReached,
+      jackpotsActivados: state.totalJackpotsTriggered,
+      sorpresasAbiertas: state.totalSurprisesOpened,
+      mejorasActivas: this.getActiveArcadeUpgrades().map((upgrade) => upgrade.name),
+      mejorasCompradas: this.getPurchasedUpgradeItems().map((upgrade) => upgrade.name),
+      regalosReservados: state.reservedRewardIds.length,
+      regalosReclamados: state.claimedRewardIds.length,
+      invitacionAceptada: state.acceptedInvitation,
+      ordenActualRuleta: this.getWheelSegments().map((segment) => segment.label),
+      ultimoMensaje: state.lastOutcomeMessage,
+    };
+  }
+
   startIntro(): void {
     this.setState({ introStarted: true, topLayerVisible: true });
   }
@@ -428,6 +515,7 @@ export class GameStore {
       jackpotEnding: false,
       jackpotSecondsLeft: seconds,
       jackpotCoinsWon: 0,
+      totalJackpotsTriggered: this.state.totalJackpotsTriggered + 1,
       lastCoinReward: 0,
       lastCoinLoss: 0,
       lastOutcomeMessage: "Jackpot! Presiona rapido para ganar monedas.",
@@ -456,6 +544,7 @@ export class GameStore {
         const finalGain = this.applyDirectCoinBonus(jackpotGain, state) * comboMultiplier;
         return {
           coins: state.coins + finalGain,
+          totalCoinsEarned: state.totalCoinsEarned + finalGain,
           highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + finalGain),
           jackpotCoinsWon: state.jackpotCoinsWon + finalGain,
           lastCoinReward: finalGain,
@@ -611,6 +700,7 @@ export class GameStore {
         );
         const finalCoinsDelta = comboResult.finalCoins;
         patch.coins = state.coins + finalCoinsDelta;
+        patch.totalCoinsEarned = state.totalCoinsEarned + finalCoinsDelta;
         patch.highestCoinsReached = Math.max(state.highestCoinsReached, state.coins + finalCoinsDelta);
         patch.lastCoinReward = finalCoinsDelta;
         patch.lastCoinLoss = 0;
@@ -619,6 +709,7 @@ export class GameStore {
 
       if (typeof resolution.coinsLoss === "number") {
         patch.coins = Math.max(0, state.coins - resolution.coinsLoss);
+        patch.totalCoinsLost = state.totalCoinsLost + resolution.coinsLoss;
         patch.lastCoinReward = 0;
         patch.lastCoinLoss = resolution.coinsLoss;
         patch.lastOutcomeMessage = resolution.message;
@@ -671,6 +762,7 @@ export class GameStore {
         patch.surpriseStage = "pending";
         patch.selectedSurpriseCardIndex = null;
         patch.revealedSurpriseOption = null;
+        patch.totalSurprisesOpened = state.totalSurprisesOpened + 1;
         patch.lastOutcomeMessage = comboMultiplier > 0
           ? `Premio sorpresa. Combo x${comboMultiplier} listo.`
           : resolution.message;
@@ -764,6 +856,7 @@ export class GameStore {
           return {
             ...statePatch,
             coins: state.coins + comboResult.finalCoins,
+            totalCoinsEarned: state.totalCoinsEarned + comboResult.finalCoins,
             highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + comboResult.finalCoins),
             lastCoinReward: comboResult.finalCoins,
             lastCoinLoss: 0,
@@ -820,6 +913,7 @@ export class GameStore {
           return {
             ...statePatch,
             coins: state.coins + comboResult.finalCoins,
+            totalCoinsEarned: state.totalCoinsEarned + comboResult.finalCoins,
             highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + comboResult.finalCoins),
             lastCoinReward: comboResult.finalCoins,
             lastCoinLoss: 0,
@@ -878,6 +972,7 @@ export class GameStore {
 
     this.setState((state) => ({
       coins: state.coins - price,
+      totalCoinsSpent: state.totalCoinsSpent + price,
       reservedRewardIds: [...new Set([...state.reservedRewardIds, rewardId])],
       unlockedRewardIds: [...new Set([...state.unlockedRewardIds, rewardId])],
       lastOutcomeMessage: "Premio reservado. Queda esperando tu decision final.",
@@ -891,12 +986,17 @@ export class GameStore {
   purchaseUpgrade(upgradeId: string): boolean {
     const upgrade = upgradeCatalog.find((item) => item.id === upgradeId);
 
-    if (!upgrade || this.state.purchasedUpgradeIds.includes(upgradeId) || this.state.coins < upgrade.price || this.hasHigherFamilyUpgrade(upgrade)) {
+    if (!upgrade
+      || this.state.purchasedUpgradeIds.includes(upgradeId)
+      || this.state.coins < upgrade.price
+      || this.hasHigherFamilyUpgrade(upgrade)
+      || this.isUpgradeBlockedByPrerequisite(upgrade)) {
       return false;
     }
 
     this.setState((state) => ({
       coins: state.coins - upgrade.price,
+      totalCoinsSpent: state.totalCoinsSpent + upgrade.price,
       purchasedUpgradeIds: this.normalizePurchasedUpgradeIds(upgradeId, state),
       kissShieldActive: upgradeId === "kiss-guard" ? true : state.kissShieldActive,
       kissShieldTriggered: false,
@@ -942,7 +1042,11 @@ export class GameStore {
   }
 
   getWheelSegments(): WheelSegment[] {
-    return wheelSegments;
+    const orderedSegments = this.state.wheelSegmentOrder
+      .map((segmentId) => wheelSegments.find((segment) => segment.id === segmentId))
+      .filter((segment): segment is WheelSegment => Boolean(segment));
+
+    return orderedSegments.length === wheelSegments.length ? orderedSegments : wheelSegments;
   }
 
   getRewardCards(): RewardCardViewModel[] {
@@ -955,32 +1059,37 @@ export class GameStore {
       const activeUpgrade = this.getEffectiveUpgradeForFamily(upgrade.family);
       const isActive = activeUpgrade?.id === upgrade.id;
       const isSuperseded = Boolean(activeUpgrade && activeUpgrade.level > upgrade.level);
+      const isBlockedByPrerequisite = this.isUpgradeBlockedByPrerequisite(upgrade);
+      const previousUpgrade = this.getPreviousFamilyUpgrade(upgrade);
       const canAfford = this.state.coins >= upgrade.price;
-      const canBuy = !isPurchased && !isSuperseded && canAfford;
+      const canBuy = !isPurchased && !isSuperseded && !isBlockedByPrerequisite && canAfford;
       const stateLabel = isActive
         ? "Activa"
         : isPurchased
           ? "Comprada"
           : isSuperseded
             ? "Superada"
+            : isBlockedByPrerequisite
+              ? "Bloqueada por version superior"
             : canAfford
               ? "Disponible"
               : "Te faltan monedas";
       const helper = isActive
-        ? "Esta es la version activa que se aplica en el juego."
+        ? ""
         : isPurchased
           ? "Ya la tienes comprada, pero otra version de la misma familia esta activa."
           : isSuperseded
             ? "Fue sustituida por una version superior."
-            : canAfford
-              ? "Tienes monedas suficientes para instalar esta mejora."
-              : "";
+            : isBlockedByPrerequisite && previousUpgrade
+              ? `Se necesita ${previousUpgrade.name} para que puedas comprar este.`
+            : "";
 
       return {
         upgrade,
         isPurchased,
         isActive,
         isSuperseded,
+        isBlockedByPrerequisite,
         canAfford,
         canBuy,
         displayPrice: upgrade.price,

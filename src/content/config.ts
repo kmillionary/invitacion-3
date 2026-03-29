@@ -409,6 +409,7 @@ const getCheapestFreeUpgradeId = (state: GameState): string | null => {
     .filter((item) => item.tier === 1 || item.tier === 2)
     .filter((item) => !state.purchasedUpgradeIds.includes(item.id))
     .filter((item) => !purchasedUpgrades.some((owned) => owned.family === item.family && owned.level > item.level))
+    .filter((item) => item.level === 1 || purchasedUpgrades.some((owned) => owned.family === item.family && owned.level === item.level - 1))
     .sort((left, right) => left.price - right.price)[0];
 
   return upgrade?.id ?? null;
