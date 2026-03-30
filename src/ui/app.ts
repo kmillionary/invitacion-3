@@ -13,7 +13,7 @@ const comboBreakCopies = [
   "Se cayo solito, ni lo toque 😉",
   "No aguanto la presion",
   "¿Y el combo? bien, gracias",
-  "Cayamos y no juzgamos",
+  "Callamos y no juzgamos",
   "Combo salio del chat",
   "F por ese combo",
   "Duro menos que nosotros",
