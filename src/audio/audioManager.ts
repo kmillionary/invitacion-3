@@ -1,6 +1,8 @@
 import { Howl } from "howler";
 import type { GameState } from "../state/types";
 
+const audioUrl = (fileName: string): string => `${import.meta.env.BASE_URL}${fileName}`;
+
 const createToneDataUri = (
   frequency: number,
   durationSeconds: number,
@@ -60,57 +62,57 @@ const createToneDataUri = (
 export class AudioManager {
   private readonly baseSpinDurationMs = 3750;
   private spin = new Howl({
-    src: ["/spin.mp3", createToneDataUri(180, 0.18, 0.3)],
+    src: [audioUrl("spin.mp3"), createToneDataUri(180, 0.18, 0.3)],
     volume: 0.65,
     html5: true,
   });
   private win = new Howl({
-    src: ["/coins.mp3", createToneDataUri(640, 0.22, 0.35)],
+    src: [audioUrl("coins.mp3"), createToneDataUri(640, 0.22, 0.35)],
     volume: 0.55,
     html5: true,
   });
   private loseVariants = [
-    new Howl({ src: ["/kiss-1.mp3", createToneDataUri(220, 0.28, 0.32)], volume: 0.55, html5: true }),
-    new Howl({ src: ["/kiss-2.mp3", createToneDataUri(240, 0.28, 0.32)], volume: 0.55, html5: true }),
-    new Howl({ src: ["/kiss-3.mp3", createToneDataUri(260, 0.28, 0.32)], volume: 0.55, html5: true }),
+    new Howl({ src: [audioUrl("kiss-1.mp3"), createToneDataUri(220, 0.28, 0.32)], volume: 0.55, html5: true }),
+    new Howl({ src: [audioUrl("kiss-2.mp3"), createToneDataUri(240, 0.28, 0.32)], volume: 0.55, html5: true }),
+    new Howl({ src: [audioUrl("kiss-3.mp3"), createToneDataUri(260, 0.28, 0.32)], volume: 0.55, html5: true }),
   ];
   private unlock = new Howl({
-    src: ["/special-price.mp3", createToneDataUri(880, 0.3, 0.3)],
+    src: [audioUrl("special-price.mp3"), createToneDataUri(880, 0.3, 0.3)],
     volume: 0.55,
     html5: true,
   });
   private robamonedas = new Howl({
-    src: ["/robamonedas.mp3", createToneDataUri(180, 0.4, 0.32)],
+    src: [audioUrl("robamonedas.mp3"), createToneDataUri(180, 0.4, 0.32)],
     volume: 0.58,
     html5: true,
   });
   private powerUp = new Howl({
-    src: ["/power-up.mp3", createToneDataUri(960, 0.35, 0.3)],
+    src: [audioUrl("power-up.mp3"), createToneDataUri(960, 0.35, 0.3)],
     volume: 0.55,
     html5: true,
   });
   private jackpot = new Howl({
-    src: ["/jackpot.mp3", createToneDataUri(1080, 0.8, 0.3)],
+    src: [audioUrl("jackpot.mp3"), createToneDataUri(1080, 0.8, 0.3)],
     volume: 0.65,
     html5: true,
   });
   private purchase = new Howl({
-    src: ["/purchase.mp3", createToneDataUri(720, 0.35, 0.3)],
+    src: [audioUrl("purchase.mp3"), createToneDataUri(720, 0.35, 0.3)],
     volume: 0.58,
     html5: true,
   });
   private reveal = new Howl({
-    src: ["/reward.mp3", createToneDataUri(520, 0.9, 0.22)],
+    src: [audioUrl("reward.mp3"), createToneDataUri(520, 0.9, 0.22)],
     volume: 0.5,
     html5: true,
   });
   private combo = new Howl({
-    src: ["/combo.mp3", createToneDataUri(760, 0.26, 0.28)],
+    src: [audioUrl("combo.mp3"), createToneDataUri(760, 0.26, 0.28)],
     volume: 0.58,
     html5: false,
   });
   private music = new Howl({
-    src: ["/background.mp3", createToneDataUri(262, 1.8, 0.16)],
+    src: [audioUrl("background.mp3"), createToneDataUri(262, 1.8, 0.16)],
     loop: true,
     volume: 0.28,
     html5: true,
