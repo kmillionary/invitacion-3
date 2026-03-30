@@ -24,12 +24,12 @@ export const sessionConfig = {
 } as const;
 
 export const rewardCatalog: RewardItem[] = [
-  { id: "bolsita-de-cloro", emoji: "🫧", name: "Bolsita de cloro", price: 80, tier: 1, kind: "casual", lockedByDefault: false },
-  { id: "chocolate-tutto", emoji: "🍫", name: "Chocolate Tutto", price: 95, tier: 1, kind: "dulce", lockedByDefault: false },
-  { id: "cafe-starbucks", emoji: "☕", name: "Cafe Starbucks", price: 110, tier: 1, kind: "experiencia", lockedByDefault: false },
-  { id: "pastel-chocolate-berlin", emoji: "🍰", name: "Pastel de Chocolate Berlin", price: 125, tier: 1, kind: "dulce", lockedByDefault: false },
-  { id: "ramo-floresitas", emoji: "💐", name: "Ramo de floresitas", price: 140, tier: 1, kind: "emocional", lockedByDefault: false },
-  { id: "gomitas-osito", emoji: "🧸", name: "Gomitas de osito", price: 160, tier: 1, kind: "casual", lockedByDefault: false },
+  { id: "bolsita-de-cloro", emoji: "🫧", name: "Bolsita de cloro", price: 180, tier: 1, kind: "casual", lockedByDefault: false },
+  { id: "gomitas-osito", emoji: "🧸", name: "Gomitas de osito", price: 220, tier: 1, kind: "casual", lockedByDefault: false },
+  { id: "chocolate-tutto", emoji: "🍫", name: "Chocolate Tutto", price: 260, tier: 1, kind: "dulce", lockedByDefault: false },
+  { id: "cafe-starbucks", emoji: "☕", name: "Cafe Starbucks", price: 300, tier: 1, kind: "experiencia", lockedByDefault: false },
+  { id: "pastel-chocolate-berlin", emoji: "🍰", name: "Pastel de Chocolate Berlin", price: 340, tier: 1, kind: "dulce", lockedByDefault: false },
+  { id: "ramo-floresitas", emoji: "💐", name: "Ramo de floresitas", price: 380, tier: 1, kind: "emocional", lockedByDefault: false },
   { id: "cajita-feliz", emoji: "🍔", name: "Cajita Feliz", price: 420, tier: 2, kind: "casual", lockedByDefault: true },
   { id: "pizza-mediana", emoji: "🍕", name: "Pizza mediana", price: 500, tier: 2, kind: "experiencia", lockedByDefault: true },
   { id: "combo-de-pollo", emoji: "🍗", name: "Combo de pollo", price: 620, tier: 2, kind: "experiencia", lockedByDefault: true },
