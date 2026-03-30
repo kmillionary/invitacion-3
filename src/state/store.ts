@@ -613,21 +613,20 @@ export class GameStore {
     return `Faltan ${spinsRemaining} ${spinsRemaining === 1 ? "giro" : "giros"} para recargarlo.`;
   }
 
-  getArcadeUpgradeEmoji(upgrade: UpgradeItem, state = this.state): string {
+  getArcadeUpgradeEmoji(upgrade: UpgradeItem): string {
     if (upgrade.id !== "kiss-guard") {
       return upgrade.emoji;
     }
 
-    const totalKissShields = this.getKissShieldTotalCharges(state);
-    if (totalKissShields <= 1) {
-      return "🛡";
+    return "🛡";
+  }
+
+  getArcadeUpgradeBadgeCount(upgrade: UpgradeItem, state = this.state): number | null {
+    if (upgrade.id !== "kiss-guard") {
+      return null;
     }
 
-    if (totalKissShields <= 4) {
-      return "🛡".repeat(totalKissShields);
-    }
-
-    return `🛡x${totalKissShields}`;
+    return this.getKissShieldTotalCharges(state);
   }
 
   getActiveArcadeUpgrades(): UpgradeItem[] {

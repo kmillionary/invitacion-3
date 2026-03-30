@@ -31,6 +31,7 @@ interface PointerUpgradeVisual {
   emoji: string;
   name: string;
   tooltipDetail?: string;
+  badgeCount?: number | null;
 }
 
 interface BackgroundOrbConfig {
@@ -78,9 +79,10 @@ export class RouletteScene extends Phaser.Scene {
     this.syncPointerUpgrades(
       store.getActiveArcadeUpgrades().map((upgrade) => ({
         id: upgrade.id,
-        emoji: upgrade.emoji,
+        emoji: store.getArcadeUpgradeEmoji(upgrade),
         name: upgrade.name,
         tooltipDetail: store.getUpgradeTooltipDetail(upgrade),
+        badgeCount: store.getArcadeUpgradeBadgeCount(upgrade),
       })),
     );
 
@@ -839,10 +841,15 @@ export class RouletteScene extends Phaser.Scene {
       const x = Math.cos(angle) * radius;
       const y = Math.sin(angle) * radius;
 
-      const ring = this.add.circle(x, y, this.scale.width < 720 ? 18 : 20, 0x34111f, 0.9);
+      const hasShieldCount = upgrade.badgeCount !== null && upgrade.badgeCount !== undefined;
+      const iconText = hasShieldCount ? `${upgrade.emoji}${upgrade.badgeCount}` : upgrade.emoji;
+      const ringRadius = this.scale.width < 720 ? 18 : 20;
+      const iconFontSize = hasShieldCount ? (this.scale.width < 720 ? "11px" : "12px") : (this.scale.width < 720 ? "16px" : "18px");
+
+      const ring = this.add.circle(x, y, ringRadius, 0x34111f, 0.9);
       ring.setStrokeStyle(2, 0xffd8a8, 0.45);
-      const icon = this.add.text(x, y, upgrade.emoji, {
-        fontSize: this.scale.width < 720 ? "16px" : "18px",
+      const icon = this.add.text(x, y, iconText, {
+        fontSize: iconFontSize,
       }).setOrigin(0.5);
       icon.setPadding(2, 5, 2, 3);
       icon.setY(y + 2.5);

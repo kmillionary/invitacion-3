@@ -446,7 +446,7 @@ export const wheelSegments: WheelSegment[] = [
     id: "double-stake",
     label: "Beso blindado",
     color: "#8338ec",
-    weight: 14,
+    weight: 6,
     kind: "modifier",
     resolve: () => ({
       incrementsCombo: true,

@@ -351,12 +351,13 @@ export class RomanticRouletteApp {
 
     const activeUpgrades = store.getActiveArcadeUpgrades().map((upgrade) => ({
       id: upgrade.id,
-      emoji: store.getArcadeUpgradeEmoji(upgrade, state),
+      emoji: store.getArcadeUpgradeEmoji(upgrade),
       name: upgrade.name,
       tooltipDetail: store.getUpgradeTooltipDetail(upgrade),
+      badgeCount: store.getArcadeUpgradeBadgeCount(upgrade, state),
     }));
     const upgradeSignature = activeUpgrades
-      .map((upgrade) => `${upgrade.id}:${upgrade.emoji}:${upgrade.tooltipDetail ?? ""}`)
+      .map((upgrade) => `${upgrade.id}:${upgrade.emoji}:${upgrade.badgeCount ?? ""}:${upgrade.tooltipDetail ?? ""}`)
       .join("|");
     if (upgradeSignature !== this.lastPointerUpgradeSignature) {
       const rouletteScene = this.game?.scene.getScene("roulette") as RouletteScene | undefined;
