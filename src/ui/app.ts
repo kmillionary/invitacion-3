@@ -49,10 +49,9 @@ const instructionPages = [
     title: "Como jugar",
     intro: "Todo es simple. Gira, gana y compra.",
     bullets: [
-      "💋 Cada giro usa 1 beso.",
       "🪙 La ruleta puede darte monedas.",
       "🎁 Las monedas sirven en la tienda.",
-      "😏 A veces tambien te toca pagar besos.",
+      "😏 Solo pagas besos si cae una casilla de deuda.",
     ],
   },
   {
@@ -61,6 +60,7 @@ const instructionPages = [
     intro: "Cada dibujo te dice lo que puede pasar.",
     bullets: [
       "🪙 Monedas: ganas premio.",
+      "😏 Deuda: te quita 1 o 2 besos.",
       "🎁 Sorpresa: sale algo especial.",
       "💋 Escudo: te protege una vez.",
       "x2 Multiplicador: el siguiente giro pega mas fuerte.",
@@ -293,7 +293,10 @@ export class RomanticRouletteApp {
         sonidoCombo: comboSoundPlayed ? `combo x${resolvedState.comboMultiplier}` : "none",
       });
 
-      scene.pulseTone(resolution.tone);
+      scene.pulseTone(
+        resolution.tone,
+        resolution.audioCue === "robamonedas" ? 0x4b1d75 : undefined,
+      );
       this.playSpinResultFlyAnimation(resolution);
 
       if (resolution.opensSurprise) {

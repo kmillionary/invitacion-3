@@ -843,7 +843,6 @@ export class GameStore {
 
     this.setState((state) => ({
       isSpinning: true,
-      investedKisses: Math.max(0, state.investedKisses - 1),
       spinCount: state.spinCount + 1,
       pendingSpinSegmentId: segmentId,
       lastOutcomeMessage: "La ruleta ya esta girando...",
@@ -939,6 +938,7 @@ export class GameStore {
       }
 
       if (typeof resolution.debtDelta === "number") {
+        patch.investedKisses = Math.max(0, state.investedKisses - resolution.debtDelta);
         patch.owedKisses = state.owedKisses + resolution.debtDelta;
         if (resolution.breaksCombo) {
           patch.lastOutcomeMessage = `${resolution.message} El combo se rompio.`;

@@ -160,7 +160,7 @@ export class RouletteScene extends Phaser.Scene {
     });
   }
 
-  pulseTone(tone: GameState["lastOutcomeTone"]): void {
+  pulseTone(tone: GameState["lastOutcomeTone"], colorOverride?: number): void {
     if (!this.wheelContainer) {
       return;
     }
@@ -184,7 +184,7 @@ export class RouletteScene extends Phaser.Scene {
     });
 
     this.backgroundGradient?.clear();
-    this.buildBackground(tintMap[tone]);
+    this.buildBackground(colorOverride ?? tintMap[tone]);
   }
 
   startJackpotMode(): void {
