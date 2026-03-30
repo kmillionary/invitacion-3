@@ -62,7 +62,7 @@ const instructionPages = [
       "🪙 Monedas: ganas premio.",
       "😏 Deuda: te quita 1 o 2 besos.",
       "🎁 Sorpresa: sale algo especial.",
-      "💋 Escudo: te protege una vez.",
+      "💋 Beso blindado: te protege una vez.",
       "x2 Multiplicador: el siguiente giro pega mas fuerte.",
       "🦹 Robamonedas: te quita monedas.",
       "🎡 Es el boton para girar.",
@@ -414,7 +414,7 @@ export class RomanticRouletteApp {
             ? `Premio final: +${state.lastCoinReward} monedas`
             : `Premio final: +${state.lastCoinReward} monedas`
         : state.kissShieldTriggered
-          ? "Tu escudo beso absorbio la perdida y saliste intacta."
+          ? "Tu beso blindado absorbio la perdida y saliste intacta."
         : state.doubleStakeNextSpin
           ? "Siguiente giro duplica monedas o besos"
         : state.comboMultiplier === 0 && state.comboLastSource === "El combo se rompio."

@@ -575,7 +575,7 @@ export class GameStore {
       jackpotsActivados: state.totalJackpotsTriggered,
       sorpresasAbiertas: state.totalSurprisesOpened,
       besoProtectorListo: state.kissShieldActive,
-      besosParaRecargaEscudo: this.getKissShieldSpinsRemaining(),
+      besosParaRecargaBesoBlindado: this.getKissShieldSpinsRemaining(),
       mejorasActivas: this.getActiveArcadeUpgrades().map((upgrade) => upgrade.name),
       mejorasCompradas: this.getPurchasedUpgradeItems().map((upgrade) => upgrade.name),
       regalosReservados: state.reservedRewardIds.length,
@@ -972,7 +972,7 @@ export class GameStore {
         patch.kissShieldTriggered = true;
         patch.kissShieldSpinProgress = 0;
         patch.lastOutcomeMessage = comboMultiplier > 0
-          ? `El escudo salvo tu racha. Combo x${comboMultiplier}`
+          ? `El beso blindado salvo tu racha. Combo x${comboMultiplier}`
           : resolution.message;
       }
 
