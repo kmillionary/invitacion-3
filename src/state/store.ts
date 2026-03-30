@@ -1,4 +1,4 @@
-import { createSurprisePool, invitationConfig, rewardCatalog, upgradeCatalog, wheelSegments } from "../content/config";
+import { createSurprisePool, invitationConfig, rewardCatalog, sessionConfig, upgradeCatalog, wheelSegments } from "../content/config";
 import type { GameState, RewardCardViewModel, RewardItem, SpinResolution, SurpriseOption, UpgradeCardViewModel, UpgradeFamily, UpgradeItem, WheelSegment } from "./types";
 
 const STORAGE_KEY = "romantic-roulette-save-v1";
@@ -12,6 +12,8 @@ const REPLACEABLE_FAMILIES = new Set<UpgradeFamily>([
   "suerte",
   "jackpot-extendido",
 ]);
+const KISS_GUARD_SPIN_INTERVAL = 7;
+const SESSION_DURATION_MS = sessionConfig.sessionDurationMinutes * 60_000;
 
 const initialUnlockedRewards = rewardCatalog
   .filter((reward) => reward.tier === 1)
@@ -31,6 +33,80 @@ const shuffle = <T>(items: T[]): T[] => {
 
 const createWheelSegmentOrder = (): string[] => shuffle(wheelSegmentIds);
 
+const getLocalDateKey = (timestamp = Date.now()): string => {
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const createSessionState = (startedAt = Date.now()): Pick<GameState, "sessionStartedAt" | "sessionEndsAt" | "sessionExpired" | "sessionLockedForToday" | "sessionLockDateKey" | "sessionPendingLockUntilComboBreak" | "sessionEndEmailSentForDateKey"> => ({
+  sessionStartedAt: startedAt,
+  sessionEndsAt: startedAt + SESSION_DURATION_MS,
+  sessionExpired: false,
+  sessionLockedForToday: false,
+  sessionLockDateKey: null,
+  sessionPendingLockUntilComboBreak: false,
+  sessionEndEmailSentForDateKey: null,
+});
+
+const renewDailySession = (state: GameState, now = Date.now()): GameState => ({
+  ...state,
+  ...createSessionState(now),
+});
+
+const applySessionTimingRules = (state: GameState, now = Date.now()): GameState => {
+  const todayKey = getLocalDateKey(now);
+
+  if (state.sessionLockDateKey && state.sessionLockDateKey !== todayKey) {
+    return renewDailySession(state, now);
+  }
+
+  if (state.sessionLockedForToday) {
+    return {
+      ...state,
+      sessionExpired: true,
+      sessionLockDateKey: state.sessionLockDateKey ?? todayKey,
+      sessionPendingLockUntilComboBreak: false,
+      shopOpen: false,
+      refillModalOpen: false,
+      invitationOpen: false,
+      surpriseModalOpen: false,
+      topLayerVisible: true,
+    };
+  }
+
+  if (now < state.sessionEndsAt) {
+    return {
+      ...state,
+      sessionExpired: false,
+      sessionPendingLockUntilComboBreak: false,
+    };
+  }
+
+  if (state.comboMultiplier > 0) {
+    return {
+      ...state,
+      sessionExpired: true,
+      sessionPendingLockUntilComboBreak: true,
+    };
+  }
+
+  return {
+    ...state,
+    sessionExpired: true,
+    sessionLockedForToday: true,
+    sessionLockDateKey: todayKey,
+    sessionPendingLockUntilComboBreak: false,
+    shopOpen: false,
+    refillModalOpen: false,
+    invitationOpen: false,
+    surpriseModalOpen: false,
+    topLayerVisible: true,
+  };
+};
+
 const normalizeWheelSegmentOrder = (order?: string[]): string[] => {
   if (!order) {
     return createWheelSegmentOrder();
@@ -48,7 +124,7 @@ const normalizeWheelSegmentOrder = (order?: string[]): string[] => {
 };
 
 const initialState = (): GameState => ({
-  sessionStartedAt: Date.now(),
+  ...createSessionState(),
   investedKisses: 0,
   owedKisses: 0,
   coins: 0,
@@ -75,6 +151,7 @@ const initialState = (): GameState => ({
   doubleStakeNextSpin: false,
   kissShieldActive: false,
   kissShieldTriggered: false,
+  kissShieldSpinProgress: 0,
   lastCoinReward: 0,
   lastCoinLoss: 0,
   comboMultiplier: 0,
@@ -120,7 +197,6 @@ const sampleUnique = <T>(items: T[], count: number): T[] => {
 
 const persistableState = (state: GameState): GameState => ({
   ...state,
-  kissShieldActive: false,
   kissShieldTriggered: false,
   jackpotQueued: false,
   currentPrizeOptions: [],
@@ -151,17 +227,25 @@ const loadState = (): GameState => {
       .map((upgradeId) => LEGACY_UPGRADE_ID_MAP[upgradeId] ?? upgradeId)
       .filter((upgradeId, index, collection) => collection.indexOf(upgradeId) === index)
       .filter((upgradeId) => upgradeCatalog.some((upgrade) => upgrade.id === upgradeId));
-    return {
+    const hasSavedShieldState = typeof parsed.kissShieldSpinProgress === "number";
+    return applySessionTimingRules({
       ...initialState(),
       ...parsed,
       purchasedUpgradeIds,
       sessionStartedAt: parsed.sessionStartedAt ?? Date.now(),
+      sessionEndsAt: parsed.sessionEndsAt ?? ((parsed.sessionStartedAt ?? Date.now()) + SESSION_DURATION_MS),
+      sessionExpired: parsed.sessionExpired ?? false,
+      sessionLockedForToday: parsed.sessionLockedForToday ?? false,
+      sessionLockDateKey: parsed.sessionLockDateKey ?? null,
+      sessionPendingLockUntilComboBreak: parsed.sessionPendingLockUntilComboBreak ?? false,
+      sessionEndEmailSentForDateKey: parsed.sessionEndEmailSentForDateKey ?? null,
       wheelSegmentOrder: normalizeWheelSegmentOrder(parsed.wheelSegmentOrder),
       shopTab: parsed.shopTab ?? "rewards",
       helpOpen: false,
       instructionPage: 0,
-      kissShieldActive: purchasedUpgradeIds.includes("kiss-guard"),
+      kissShieldActive: hasSavedShieldState ? parsed.kissShieldActive ?? false : purchasedUpgradeIds.includes("kiss-guard"),
       kissShieldTriggered: false,
+      kissShieldSpinProgress: hasSavedShieldState ? parsed.kissShieldSpinProgress ?? 0 : 0,
       jackpotQueued: false,
       currentPrizeOptions: [],
       surpriseStage: "hidden",
@@ -178,7 +262,7 @@ const loadState = (): GameState => {
         ...invitationConfig,
         ...parsed.invitation,
       },
-    };
+    });
   } catch {
     return initialState();
   }
@@ -203,6 +287,18 @@ export class GameStore {
     return this.state;
   }
 
+  getSessionRemainingMs(now = Date.now()): number {
+    if (this.state.sessionLockedForToday) {
+      return 0;
+    }
+
+    return Math.max(0, this.state.sessionEndsAt - now);
+  }
+
+  checkSessionStatus(now = Date.now()): void {
+    this.refreshSessionState(now);
+  }
+
   setState(updater: Partial<GameState> | ((state: GameState) => Partial<GameState>)): void {
     const patch = typeof updater === "function" ? updater(this.state) : updater;
     this.state = { ...this.state, ...patch };
@@ -219,6 +315,39 @@ export class GameStore {
 
   private persist(): void {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistableState(this.state)));
+  }
+
+  private refreshSessionState(now = Date.now()): void {
+    const nextState = applySessionTimingRules(this.state, now);
+    const currentStateJson = JSON.stringify(this.state);
+    const nextStateJson = JSON.stringify(nextState);
+
+    if (currentStateJson === nextStateJson) {
+      return;
+    }
+
+    this.state = nextState;
+    this.syncUnlocks();
+    this.persist();
+    this.emit();
+  }
+
+  private isSessionInteractionBlocked(state = this.state): boolean {
+    return state.sessionLockedForToday;
+  }
+
+  private finalizePendingSessionLock(): Partial<GameState> {
+    return {
+      sessionExpired: true,
+      sessionLockedForToday: true,
+      sessionLockDateKey: getLocalDateKey(),
+      sessionPendingLockUntilComboBreak: false,
+      topLayerVisible: true,
+      shopOpen: false,
+      refillModalOpen: false,
+      invitationOpen: false,
+      surpriseModalOpen: false,
+    };
   }
 
   private shouldKeepTopLayerVisible(state: GameState): boolean {
@@ -391,6 +520,27 @@ export class GameStore {
     return Math.round(3750 * multiplier);
   }
 
+  getKissShieldSpinsRemaining(): number {
+    if (!this.state.purchasedUpgradeIds.includes("kiss-guard") || this.state.kissShieldActive) {
+      return 0;
+    }
+
+    return Math.max(0, KISS_GUARD_SPIN_INTERVAL - this.state.kissShieldSpinProgress);
+  }
+
+  getUpgradeTooltipDetail(upgrade: UpgradeItem): string {
+    if (upgrade.id !== "kiss-guard") {
+      return upgrade.description;
+    }
+
+    if (this.state.kissShieldActive) {
+      return "Listo para bloquear una deuda.";
+    }
+
+    const spinsRemaining = this.getKissShieldSpinsRemaining();
+    return `Faltan ${spinsRemaining} ${spinsRemaining === 1 ? "giro" : "giros"} para recargarlo.`;
+  }
+
   getActiveArcadeUpgrades(): UpgradeItem[] {
     const activeByFamily = new Map<UpgradeFamily, UpgradeItem>();
 
@@ -424,6 +574,8 @@ export class GameStore {
       picoMonedas: state.highestCoinsReached,
       jackpotsActivados: state.totalJackpotsTriggered,
       sorpresasAbiertas: state.totalSurprisesOpened,
+      besoProtectorListo: state.kissShieldActive,
+      besosParaRecargaEscudo: this.getKissShieldSpinsRemaining(),
       mejorasActivas: this.getActiveArcadeUpgrades().map((upgrade) => upgrade.name),
       mejorasCompradas: this.getPurchasedUpgradeItems().map((upgrade) => upgrade.name),
       regalosReservados: state.reservedRewardIds.length,
@@ -434,7 +586,37 @@ export class GameStore {
     };
   }
 
+  getSessionEmailMetrics(): Record<string, string> {
+    const snapshot = this.getMetricsSnapshot();
+    return {
+      "Tiempo total": String(snapshot.tiempoTotalTexto),
+      "Giros totales": String(snapshot.girosTotales),
+      "Monedas actuales": String(snapshot.monedasActuales),
+      "Monedas ganadas": String(snapshot.monedasTotalesGanadas),
+      "Monedas gastadas": String(snapshot.monedasTotalesGastadas),
+      "Monedas perdidas": String(snapshot.monedasTotalesPerdidas),
+      "Pico de monedas": String(snapshot.picoMonedas),
+      Jackpots: String(snapshot.jackpotsActivados),
+      Sorpresas: String(snapshot.sorpresasAbiertas),
+      "Regalos reservados": String(snapshot.regalosReservados),
+      "Regalos reclamados": String(snapshot.regalosReclamados),
+      "Mejoras activas": Array.isArray(snapshot.mejorasActivas) ? snapshot.mejorasActivas.join(", ") || "Ninguna" : String(snapshot.mejorasActivas),
+      "Ultimo mensaje": String(snapshot.ultimoMensaje),
+    };
+  }
+
+  markSessionEndEmailSent(dateKey: string): void {
+    if (!dateKey || this.state.sessionEndEmailSentForDateKey === dateKey) {
+      return;
+    }
+
+    this.setState({
+      sessionEndEmailSentForDateKey: dateKey,
+    });
+  }
+
   startIntro(): void {
+    this.refreshSessionState();
     this.setState({ introStarted: true, topLayerVisible: true });
   }
 
@@ -482,6 +664,11 @@ export class GameStore {
   }
 
   confirmCommitment(selectedKisses: number, playerName: string): void {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked()) {
+      return;
+    }
+
     this.setState((state) => ({
       investedKisses: selectedKisses,
       committedTotal: state.committedTotal + selectedKisses,
@@ -496,6 +683,11 @@ export class GameStore {
   }
 
   addMoreKisses(amount: number): void {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked()) {
+      return;
+    }
+
     this.setState((state) => ({
       investedKisses: state.investedKisses + amount,
       committedTotal: state.committedTotal + amount,
@@ -509,6 +701,10 @@ export class GameStore {
   }
 
   startJackpot(seconds: number): void {
+    if (this.isSessionInteractionBlocked()) {
+      return;
+    }
+
     this.setState({
       jackpotActive: true,
       jackpotQueued: false,
@@ -532,7 +728,7 @@ export class GameStore {
   }
 
   awardJackpotCoin(): void {
-    if (!this.state.jackpotActive || this.state.jackpotEnding) {
+    if (!this.state.jackpotActive || this.state.jackpotEnding || this.isSessionInteractionBlocked()) {
       return;
     }
 
@@ -589,6 +785,11 @@ export class GameStore {
   }
 
   openRefillModal(): void {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked()) {
+      return;
+    }
+
     this.setState({ refillModalOpen: true, topLayerVisible: true });
   }
 
@@ -597,6 +798,11 @@ export class GameStore {
   }
 
   openShop(): void {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked()) {
+      return;
+    }
+
     this.setState({ shopOpen: true, topLayerVisible: true });
   }
 
@@ -609,6 +815,11 @@ export class GameStore {
   }
 
   openInvitation(): void {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked()) {
+      return;
+    }
+
     this.setState({ invitationOpen: true, topLayerVisible: true });
   }
 
@@ -625,7 +836,8 @@ export class GameStore {
   }
 
   beginSpin(segmentId: string): void {
-    if (this.state.isSpinning || this.state.investedKisses <= 0 || this.state.surpriseModalOpen || this.state.surpriseStage !== "hidden") {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked() || this.state.isSpinning || this.state.investedKisses <= 0 || this.state.surpriseModalOpen || this.state.surpriseStage !== "hidden") {
       return;
     }
 
@@ -642,6 +854,7 @@ export class GameStore {
   }
 
   resolveSpin(segmentId: string): SpinResolution | null {
+    this.refreshSessionState();
     const segment = this.state.jackpotQueued
       ? {
           id: "queued-jackpot",
@@ -664,7 +877,14 @@ export class GameStore {
     }
 
     const currentState = this.state;
-    const resolution = segment.resolve(currentState);
+    const shouldAutoChargeKissShield = currentState.purchasedUpgradeIds.includes("kiss-guard")
+      && !currentState.kissShieldActive
+      && currentState.kissShieldSpinProgress + 1 >= KISS_GUARD_SPIN_INTERVAL;
+    const resolution = segment.resolve(
+      shouldAutoChargeKissShield
+        ? { ...currentState, kissShieldActive: true }
+        : currentState
+    );
 
     this.setState((state) => {
       const patch: Partial<GameState> = {
@@ -744,17 +964,35 @@ export class GameStore {
       if (resolution.setKissShield) {
         patch.kissShieldActive = true;
         patch.kissShieldTriggered = false;
+        patch.kissShieldSpinProgress = 0;
       }
 
       if (resolution.consumeKissShield) {
         patch.kissShieldActive = false;
         patch.kissShieldTriggered = true;
+        patch.kissShieldSpinProgress = 0;
         patch.lastOutcomeMessage = comboMultiplier > 0
           ? `El escudo salvo tu racha. Combo x${comboMultiplier}`
           : resolution.message;
-      } else if (state.kissShieldActive && !resolution.setKissShield) {
-        patch.kissShieldActive = false;
-        patch.kissShieldTriggered = false;
+      }
+
+      const ownsKissGuard = state.purchasedUpgradeIds.includes("kiss-guard");
+      if (ownsKissGuard && !resolution.setKissShield && !resolution.consumeKissShield) {
+        if (state.kissShieldActive) {
+          patch.kissShieldSpinProgress = 0;
+        } else if (shouldAutoChargeKissShield) {
+          patch.kissShieldActive = true;
+          patch.kissShieldTriggered = false;
+          patch.kissShieldSpinProgress = 0;
+        } else {
+          const nextProgress = state.kissShieldSpinProgress + 1;
+          if (nextProgress >= KISS_GUARD_SPIN_INTERVAL) {
+            patch.kissShieldActive = true;
+            patch.kissShieldSpinProgress = 0;
+          } else {
+            patch.kissShieldSpinProgress = nextProgress;
+          }
+        }
       }
 
       if (resolution.opensSurprise) {
@@ -778,8 +1016,14 @@ export class GameStore {
         patch.topLayerVisible = true;
       }
 
+      if (state.sessionPendingLockUntilComboBreak && comboMultiplier === 0) {
+        Object.assign(patch, this.finalizePendingSessionLock());
+      }
+
       return patch;
     });
+
+    this.refreshSessionState();
 
     return resolution;
   }
@@ -814,7 +1058,8 @@ export class GameStore {
   }
 
   openSurpriseSelection(): void {
-    if (this.state.currentPrizeOptions.length === 0 || this.state.surpriseStage !== "pending") {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked() || this.state.currentPrizeOptions.length === 0 || this.state.surpriseStage !== "pending") {
       return;
     }
 
@@ -829,7 +1074,8 @@ export class GameStore {
   }
 
   selectSurpriseCard(cardIndex: number): SurpriseOption | null {
-    if (this.state.surpriseStage !== "choosing") {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked() || this.state.surpriseStage !== "choosing") {
       return null;
     }
 
@@ -956,6 +1202,11 @@ export class GameStore {
   }
 
   reserveReward(rewardId: string): boolean {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked()) {
+      return false;
+    }
+
     const reward = rewardCatalog.find((item) => item.id === rewardId);
 
     if (!reward) {
@@ -984,6 +1235,11 @@ export class GameStore {
   }
 
   purchaseUpgrade(upgradeId: string): boolean {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked()) {
+      return false;
+    }
+
     const upgrade = upgradeCatalog.find((item) => item.id === upgradeId);
 
     if (!upgrade
@@ -1000,6 +1256,7 @@ export class GameStore {
       purchasedUpgradeIds: this.normalizePurchasedUpgradeIds(upgradeId, state),
       kissShieldActive: upgradeId === "kiss-guard" ? true : state.kissShieldActive,
       kissShieldTriggered: false,
+      kissShieldSpinProgress: upgradeId === "kiss-guard" ? 0 : state.kissShieldSpinProgress,
       lastOutcomeMessage: `${upgrade.name} ya forma parte de tus mejoras.`,
       lastOutcomeTone: "special",
     }));
@@ -1008,6 +1265,11 @@ export class GameStore {
   }
 
   claimReward(rewardId: string): boolean {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked()) {
+      return false;
+    }
+
     const reward = rewardCatalog.find((item) => item.id === rewardId);
 
     if (!reward || !this.state.acceptedInvitation || !this.state.reservedRewardIds.includes(rewardId)) {
@@ -1025,6 +1287,11 @@ export class GameStore {
   }
 
   acceptInvitation(): void {
+    this.refreshSessionState();
+    if (this.isSessionInteractionBlocked()) {
+      return;
+    }
+
     this.setState({
       acceptedInvitation: true,
       invitationOpen: false,
@@ -1097,6 +1364,16 @@ export class GameStore {
         helper,
       };
     });
+  }
+
+  hasShopAttention(): boolean {
+    if (this.isSessionInteractionBlocked()) {
+      return false;
+    }
+
+    const hasAvailableReward = this.getRewardCards().some((card) => card.canReserve || card.canClaim);
+    const hasAvailableUpgrade = this.getUpgradeCards().some((card) => card.canBuy);
+    return hasAvailableReward || hasAvailableUpgrade;
   }
 
   private getRewardCard(reward: RewardItem): RewardCardViewModel {

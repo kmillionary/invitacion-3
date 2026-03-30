@@ -104,6 +104,11 @@ export class AudioManager {
     volume: 0.5,
     html5: true,
   });
+  private combo = new Howl({
+    src: ["/combo.mp3", createToneDataUri(760, 0.26, 0.28)],
+    volume: 0.58,
+    html5: false,
+  });
   private music = new Howl({
     src: ["/background.mp3", createToneDataUri(262, 1.8, 0.16)],
     loop: true,
@@ -178,6 +183,19 @@ export class AudioManager {
     if (state.audioEnabled) {
       this.reveal.play();
     }
+  }
+
+  playCombo(state: GameState, comboMultiplier: number): boolean {
+    if (!state.audioEnabled) {
+      return false;
+    }
+
+    const semitoneRatio = 2 ** (1 / 12);
+    const playbackRate = Math.min(1.8, semitoneRatio ** Math.max(0, comboMultiplier - 1));
+    this.combo.stop();
+    const soundId = this.combo.play();
+    this.combo.rate(playbackRate, soundId);
+    return true;
   }
 
   stopJackpot(): void {

@@ -124,6 +124,12 @@ export interface SurpriseOption {
 
 export interface GameState {
   sessionStartedAt: number;
+  sessionEndsAt: number;
+  sessionExpired: boolean;
+  sessionLockedForToday: boolean;
+  sessionLockDateKey: string | null;
+  sessionPendingLockUntilComboBreak: boolean;
+  sessionEndEmailSentForDateKey: string | null;
   investedKisses: number;
   owedKisses: number;
   coins: number;
@@ -150,6 +156,7 @@ export interface GameState {
   doubleStakeNextSpin: boolean;
   kissShieldActive: boolean;
   kissShieldTriggered: boolean;
+  kissShieldSpinProgress: number;
   lastCoinReward: number;
   lastCoinLoss: number;
   comboMultiplier: number;

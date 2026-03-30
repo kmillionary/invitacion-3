@@ -18,6 +18,11 @@ export const invitationConfig: InvitationConfig = {
   ctaLabel: "Aceptar invitacion",
 };
 
+export const sessionConfig = {
+  sessionDurationMinutes: 30,
+  sessionEndMessage: "Tu sesion de hoy ha terminado! regresa mañana para más premios.",
+} as const;
+
 export const rewardCatalog: RewardItem[] = [
   { id: "bolsita-de-cloro", emoji: "🫧", name: "Bolsita de cloro", price: 80, tier: 1, kind: "casual", lockedByDefault: false },
   { id: "chocolate-tutto", emoji: "🍫", name: "Chocolate Tutto", price: 95, tier: 1, kind: "dulce", lockedByDefault: false },
@@ -56,7 +61,7 @@ export const upgradeCatalog: UpgradeItem[] = [
     id: "kiss-guard",
     emoji: "💋",
     name: "Beso protector",
-    description: "Bloquea la siguiente deuda de besos.",
+    description: "Bloquea una deuda cada 7 giros.",
     price: 340,
     tier: 1,
     kind: "escudo",
@@ -354,7 +359,7 @@ export const wheelSegments: WheelSegment[] = [
       tone: "special",
     }),
   },
-  { id: "coin-steal", label: "Robamonedas", color: "#7b2cbf", weight: 5, kind: "debt", resolve: createCoinStealResolution(0.08) },
+  { id: "coin-steal", label: "Robamonedas", color: "#7b2cbf", weight: 5, kind: "debt", resolve: createCoinStealResolution(0.12) },
   { id: "coins-15", label: "+15 monedas", color: "#fcbf49", weight: 5, kind: "coins", resolve: createCoinResolution(15, "Mini jackpot romantico desbloqueado.") },
   {
     id: "double-stake",
@@ -415,13 +420,14 @@ const getCheapestFreeUpgradeId = (state: GameState): string | null => {
   return upgrade?.id ?? null;
 };
 
-const applyGrantedUpgrade = (state: GameState, upgradeId: string): Pick<GameState, "purchasedUpgradeIds" | "kissShieldActive"> => {
+const applyGrantedUpgrade = (state: GameState, upgradeId: string): Pick<GameState, "purchasedUpgradeIds" | "kissShieldActive" | "kissShieldSpinProgress"> => {
   const grantedUpgrade = upgradeCatalog.find((item) => item.id === upgradeId);
 
   if (!grantedUpgrade) {
     return {
       purchasedUpgradeIds: state.purchasedUpgradeIds,
       kissShieldActive: state.kissShieldActive,
+      kissShieldSpinProgress: state.kissShieldSpinProgress,
     };
   }
 
@@ -440,6 +446,7 @@ const applyGrantedUpgrade = (state: GameState, upgradeId: string): Pick<GameStat
   return {
     purchasedUpgradeIds,
     kissShieldActive: grantedUpgrade.id === "kiss-guard" ? true : state.kissShieldActive,
+    kissShieldSpinProgress: grantedUpgrade.id === "kiss-guard" ? 0 : state.kissShieldSpinProgress,
   };
 };
 

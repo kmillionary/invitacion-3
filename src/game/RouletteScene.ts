@@ -26,14 +26,39 @@ interface ResourceFlyFromCounterConfig {
   };
 }
 
+interface PointerUpgradeVisual {
+  id: string;
+  emoji: string;
+  name: string;
+  tooltipDetail?: string;
+}
+
+interface BackgroundOrbConfig {
+  x: number;
+  y: number;
+  radius: number;
+  color: number;
+  alpha: number;
+  duration: number;
+  xOffset: number;
+  yOffset: number;
+  scaleOffset: number;
+}
+
 export class RouletteScene extends Phaser.Scene {
   private wheelContainer?: Phaser.GameObjects.Container;
   private messageText?: Phaser.GameObjects.Text;
   private backgroundGradient?: Phaser.GameObjects.Graphics;
+  private backgroundMotionLayer?: Phaser.GameObjects.Container;
+  private backgroundOrbs: Phaser.GameObjects.Arc[] = [];
   private particles?: Phaser.GameObjects.Particles.ParticleEmitter;
   private pointerTriangle?: Phaser.GameObjects.Triangle;
   private pointerRing?: Phaser.GameObjects.Arc;
   private pointerSparkle?: Phaser.GameObjects.Text;
+  private pointerUpgradeHalo?: Phaser.GameObjects.Arc;
+  private pointerUpgradeContainer?: Phaser.GameObjects.Container;
+  private pointerUpgradeTooltip?: Phaser.GameObjects.Container;
+  private pointerUpgradeItems: PointerUpgradeVisual[] = [];
   private latestState?: GameState;
   private wheelRadius = 220;
   private readonly pointerAngle = 0;
@@ -50,10 +75,22 @@ export class RouletteScene extends Phaser.Scene {
     this.buildWheel();
     this.buildPointer();
     this.buildMessage();
+    this.syncPointerUpgrades(
+      store.getActiveArcadeUpgrades().map((upgrade) => ({
+        id: upgrade.id,
+        emoji: upgrade.emoji,
+        name: upgrade.name,
+        tooltipDetail: store.getUpgradeTooltipDetail(upgrade),
+      })),
+    );
 
     store.subscribe((state) => {
       this.latestState = state;
       this.refreshMessage(state);
+    });
+
+    this.input.on("pointerdown", () => {
+      this.hidePointerUpgradeTooltip();
     });
 
     this.scale.on("resize", this.handleResize, this);
@@ -182,6 +219,11 @@ export class RouletteScene extends Phaser.Scene {
     this.jackpotBackgroundEvent?.remove(false);
     this.jackpotBackgroundEvent = undefined;
     this.buildBackground();
+  }
+
+  syncPointerUpgrades(upgrades: PointerUpgradeVisual[]): void {
+    this.pointerUpgradeItems = upgrades;
+    this.renderPointerUpgradePage(true);
   }
 
   stopJackpotModeSmooth(): Promise<void> {
@@ -456,6 +498,117 @@ export class RouletteScene extends Phaser.Scene {
     this.backgroundGradient.fillCircle(width * 0.16, height * 0.28, 90);
   }
 
+  private buildBackgroundMotion(): void {
+    const width = this.scale.width;
+    const height = this.scale.height;
+
+    if (!this.backgroundMotionLayer) {
+      this.backgroundMotionLayer = this.add.container(0, 0);
+      this.backgroundMotionLayer.setDepth(-9);
+    }
+
+    this.tweens.killTweensOf(this.backgroundOrbs);
+    this.backgroundMotionLayer.removeAll(true);
+    this.backgroundOrbs = [];
+
+    const orbConfigs: BackgroundOrbConfig[] = [
+      {
+        x: width * 0.16,
+        y: height * 0.18,
+        radius: Math.max(90, width * 0.08),
+        color: 0xffffff,
+        alpha: 0.06,
+        duration: 7000,
+        xOffset: width * 0.035,
+        yOffset: height * 0.04,
+        scaleOffset: 0.12,
+      },
+      {
+        x: width * 0.82,
+        y: height * 0.2,
+        radius: Math.max(110, width * 0.1),
+        color: 0xffd6c9,
+        alpha: 0.1,
+        duration: 9200,
+        xOffset: width * 0.045,
+        yOffset: height * 0.03,
+        scaleOffset: 0.16,
+      },
+      {
+        x: width * 0.22,
+        y: height * 0.72,
+        radius: Math.max(100, width * 0.09),
+        color: 0xffb3cb,
+        alpha: 0.1,
+        duration: 8600,
+        xOffset: width * 0.03,
+        yOffset: height * 0.05,
+        scaleOffset: 0.14,
+      },
+      {
+        x: width * 0.88,
+        y: height * 0.74,
+        radius: Math.max(120, width * 0.12),
+        color: 0xfff1d6,
+        alpha: 0.07,
+        duration: 10400,
+        xOffset: width * 0.05,
+        yOffset: height * 0.04,
+        scaleOffset: 0.18,
+      },
+    ];
+
+    orbConfigs.forEach((config, index) => {
+      const orb = this.add.circle(config.x, config.y, config.radius, config.color, config.alpha);
+      orb.setBlendMode(Phaser.BlendModes.SCREEN);
+      orb.setScrollFactor(0);
+      this.backgroundMotionLayer?.add(orb);
+      this.backgroundOrbs.push(orb);
+
+      this.tweens.add({
+        targets: orb,
+        x: config.x + config.xOffset,
+        y: config.y - config.yOffset,
+        scale: 1 + config.scaleOffset,
+        alpha: config.alpha + 0.03,
+        duration: config.duration,
+        delay: index * 240,
+        ease: "Sine.easeInOut",
+        yoyo: true,
+        repeat: -1,
+      });
+    });
+
+    for (let index = 0; index < 7; index += 1) {
+      const sparkle = this.add.text(
+        width * (0.12 + index * 0.12),
+        height * (0.22 + (index % 3) * 0.18),
+        "✦",
+        {
+          fontFamily: "\"Fredoka\", sans-serif",
+          fontSize: `${18 + (index % 3) * 6}px`,
+          color: "#fff6ef",
+        },
+      );
+      sparkle.setOrigin(0.5);
+      sparkle.setAlpha(0.08);
+      sparkle.setAngle(index % 2 === 0 ? -12 : 12);
+      this.backgroundMotionLayer?.add(sparkle);
+
+      this.tweens.add({
+        targets: sparkle,
+        y: sparkle.y - 18,
+        alpha: 0.2,
+        scale: 1.18,
+        duration: 1800 + index * 220,
+        delay: index * 180,
+        ease: "Sine.easeInOut",
+        yoyo: true,
+        repeat: -1,
+      });
+    }
+  }
+
   private buildWheel(): void {
     const segments = store.getWheelSegments();
     const centerX = this.getWheelCenterX();
@@ -524,6 +677,9 @@ export class RouletteScene extends Phaser.Scene {
   private buildPointer(): void {
     const pointerX = this.getPointerX();
     const pointerY = this.getPointerY();
+    this.pointerUpgradeHalo = this.add.circle(pointerX + 22, pointerY, 26, 0xffb3cb, 0.12);
+    this.pointerUpgradeHalo.setStrokeStyle(2, 0xffd6e3, 0.2);
+    this.pointerUpgradeHalo.setVisible(false);
     this.pointerTriangle = this.add.triangle(
       pointerX,
       pointerY,
@@ -543,6 +699,10 @@ export class RouletteScene extends Phaser.Scene {
     this.pointerSparkle = this.add.text(pointerX + 22, pointerY, "✨", {
       fontSize: "20px",
     }).setOrigin(0.5);
+    this.pointerUpgradeContainer = this.add.container(this.getWheelCenterX(), this.getWheelCenterY());
+    this.pointerUpgradeTooltip = this.add.container(0, 0);
+    this.pointerUpgradeTooltip.setDepth(40);
+    this.pointerUpgradeTooltip.setVisible(false);
   }
 
   private buildMessage(): void {
@@ -610,7 +770,7 @@ export class RouletteScene extends Phaser.Scene {
   }
 
   private getPointerX(): number {
-    return Math.min(this.scale.width - 44, this.wheelRadius + 46);
+    return Math.min(this.scale.width - 44, this.wheelRadius + 66);
   }
 
   private getPointerY(): number {
@@ -628,11 +788,189 @@ export class RouletteScene extends Phaser.Scene {
     const pointerX = this.getPointerX();
     const centerY = this.getWheelCenterY();
     this.buildBackground();
+    this.buildBackgroundMotion();
     this.wheelContainer.setPosition(centerX, centerY);
     this.messageText.setPosition(width / 2, this.scale.height * 0.12);
     this.messageText.setWordWrapWidth(Math.min(620, width - 48));
+    this.pointerUpgradeHalo?.setPosition(pointerX + 22, pointerY);
     this.pointerTriangle?.setPosition(pointerX, pointerY);
     this.pointerRing?.setPosition(pointerX + 22, pointerY);
     this.pointerSparkle?.setPosition(pointerX + 22, pointerY);
+    this.pointerUpgradeContainer?.setPosition(centerX, centerY);
+    this.hidePointerUpgradeTooltip();
+    this.renderPointerUpgradePage(true);
+  }
+
+  private renderPointerUpgradePage(isImmediate: boolean): void {
+    if (!this.pointerUpgradeContainer || !this.pointerUpgradeHalo) {
+      return;
+    }
+
+    this.pointerUpgradeContainer.removeAll(true);
+    this.hidePointerUpgradeTooltip();
+
+    if (this.pointerUpgradeItems.length === 0) {
+      this.pointerUpgradeHalo.setVisible(false);
+      return;
+    }
+
+    this.pointerUpgradeHalo.setVisible(true);
+    this.pointerUpgradeHalo.setScale(1);
+    this.tweens.killTweensOf(this.pointerUpgradeHalo);
+    this.tweens.add({
+      targets: this.pointerUpgradeHalo,
+      scale: 1.12,
+      alpha: 0.2,
+      duration: 820,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+
+    const visibleItems = this.pointerUpgradeItems;
+    const radius = this.wheelRadius + (this.scale.width < 720 ? 34 : 48);
+    const startAngle = Phaser.Math.DegToRad(-58);
+    const endAngle = Phaser.Math.DegToRad(58);
+    const centerAngle = (startAngle + endAngle) / 2;
+    const step = visibleItems.length > 1 ? (endAngle - startAngle) / (visibleItems.length - 1) : 0;
+
+    visibleItems.forEach((upgrade, index) => {
+      const angle = visibleItems.length === 1 ? centerAngle : startAngle + step * index;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+
+      const ring = this.add.circle(x, y, this.scale.width < 720 ? 18 : 20, 0x34111f, 0.9);
+      ring.setStrokeStyle(2, 0xffd8a8, 0.45);
+      const icon = this.add.text(x, y, upgrade.emoji, {
+        fontSize: this.scale.width < 720 ? "16px" : "18px",
+      }).setOrigin(0.5);
+      icon.setPadding(2, 5, 2, 3);
+      icon.setY(y + 2.5);
+      ring.setInteractive({ useHandCursor: true });
+      icon.setInteractive({ useHandCursor: true });
+
+      ring.setScale(isImmediate ? 1 : 0.72);
+      ring.setAlpha(isImmediate ? 1 : 0);
+      icon.setScale(isImmediate ? 1 : 0.72);
+      icon.setAlpha(isImmediate ? 1 : 0);
+
+      this.pointerUpgradeContainer?.add([ring, icon]);
+
+      const floatOffset = Phaser.Math.Between(0, 200);
+      this.tweens.add({
+        targets: [ring, icon],
+        y: y - 3,
+        duration: 1100 + floatOffset,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+      });
+
+      if (!isImmediate) {
+        this.tweens.add({
+          targets: [ring, icon],
+          alpha: 1,
+          scale: 1,
+          duration: 260,
+          delay: index * 45,
+          ease: "Back.easeOut",
+        });
+      }
+
+      const openTooltip = (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation();
+        const worldX = (this.pointerUpgradeContainer?.x ?? 0) + x;
+        const worldY = (this.pointerUpgradeContainer?.y ?? 0) + y;
+        this.showPointerUpgradeTooltip(upgrade, worldX, worldY - (this.scale.width < 720 ? 18 : 22));
+      };
+      ring.on("pointerdown", openTooltip);
+      icon.on("pointerdown", openTooltip);
+    });
+  }
+
+  private showPointerUpgradeTooltip(upgrade: PointerUpgradeVisual, x: number, y: number): void {
+    if (!this.pointerUpgradeTooltip) {
+      return;
+    }
+
+    this.pointerUpgradeTooltip.removeAll(true);
+
+    const titleWrapWidth = this.scale.width < 720 ? 116 : 140;
+    const detailWrapWidth = this.scale.width < 720 ? 122 : 148;
+    const title = this.add.text(0, 0, upgrade.name, {
+      fontFamily: "\"Fredoka\", sans-serif",
+      fontSize: this.scale.width < 720 ? "12px" : "13px",
+      color: "#fff7ef",
+      align: "center",
+      wordWrap: { width: titleWrapWidth },
+    }).setOrigin(0.5);
+
+    const detail = upgrade.tooltipDetail
+      ? this.add.text(0, 0, upgrade.tooltipDetail, {
+          fontFamily: "\"Avenir Next\", \"Segoe UI\", sans-serif",
+          fontSize: this.scale.width < 720 ? "10px" : "11px",
+          color: "#ffd9b8",
+          align: "center",
+          wordWrap: { width: detailWrapWidth },
+          lineSpacing: 2,
+        }).setOrigin(0.5, 0)
+      : undefined;
+
+    const gapY = detail ? 4 : 0;
+    const titleHeight = title.height;
+    const detailHeight = detail?.height ?? 0;
+    const contentHeight = titleHeight + (detail ? gapY + detailHeight : 0);
+    const maxContentWidth = Math.max(title.width, detail?.width ?? 0);
+
+    title.setY(-contentHeight / 2 + titleHeight / 2);
+
+    if (detail) {
+      detail.setY(contentHeight / 2 - detailHeight);
+    }
+
+    const paddingX = 10;
+    const paddingY = 7;
+    const textObjects = detail ? [title, detail] : [title];
+    const bubble = this.add.graphics();
+    bubble.fillStyle(0x34111f, 0.94);
+    bubble.lineStyle(2, 0xffd8a8, 0.4);
+    bubble.fillRoundedRect(
+      -maxContentWidth / 2 - paddingX,
+      -contentHeight / 2 - paddingY,
+      maxContentWidth + paddingX * 2,
+      contentHeight + paddingY * 2,
+      12,
+    );
+    bubble.strokeRoundedRect(
+      -maxContentWidth / 2 - paddingX,
+      -contentHeight / 2 - paddingY,
+      maxContentWidth + paddingX * 2,
+      contentHeight + paddingY * 2,
+      12,
+    );
+
+    this.pointerUpgradeTooltip.add([bubble, ...textObjects]);
+    this.pointerUpgradeTooltip.setPosition(x, y);
+    this.pointerUpgradeTooltip.setVisible(true);
+    this.pointerUpgradeTooltip.setAlpha(0);
+    this.pointerUpgradeTooltip.setScale(0.92);
+    this.tweens.killTweensOf(this.pointerUpgradeTooltip);
+    this.tweens.add({
+      targets: this.pointerUpgradeTooltip,
+      alpha: 1,
+      scale: 1,
+      duration: 160,
+      ease: "Back.easeOut",
+    });
+  }
+
+  private hidePointerUpgradeTooltip(): void {
+    if (!this.pointerUpgradeTooltip) {
+      return;
+    }
+
+    this.pointerUpgradeTooltip.removeAll(true);
+    this.pointerUpgradeTooltip.setVisible(false);
+    this.pointerUpgradeTooltip.setAlpha(0);
   }
 }

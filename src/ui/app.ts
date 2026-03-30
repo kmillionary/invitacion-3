@@ -1,11 +1,48 @@
 import Phaser from "phaser";
 import { audioManager } from "../audio/audioManager";
+import { rewardCatalog, sessionConfig } from "../content/config";
 import { createGame } from "../game/createGame";
+import { sendRewardReservedEmail, sendSessionFinishedEmail } from "../services/mailer";
 import { store } from "../state/store";
 import type { GameState, RewardCardViewModel, UpgradeCardViewModel } from "../state/types";
 import { RouletteScene } from "../game/RouletteScene";
 
 const toneClass = (tone: GameState["lastOutcomeTone"]): string => `tone-${tone}`;
+const comboBreakCopies = [
+  "Uy... se rompio el combo",
+  "Se cayo solito, ni lo toque 😉",
+  "No aguanto la presion",
+  "¿Y el combo? bien, gracias",
+  "Cayamos y no juzgamos",
+  "Combo salio del chat",
+  "F por ese combo",
+  "Duro menos que nosotros",
+  "0% combo, 100% actitud",
+  "Combo modo prueba gratis",
+  "Combo eliminado 💀",
+  "Era perfecto... hasta que no",
+] as const;
+const spinCopies = [
+  "Vamos... no me falles ahora",
+  "Se viene algo bueno",
+  "No parpadees",
+  "Momento canon",
+  "El destino esta girando",
+  "Esto es personal",
+  "Vibe check en proceso",
+  "No respires",
+  "Esto puede ser epico",
+  "Aguanta... AGUANTA",
+  "Si sale combo... te beso",
+  "Pide tu deseo",
+  "Todo o nada",
+  "Aqui se decide tu destino",
+  "El universo esta mirando",
+  "No hay vuelta atras",
+  "Girando con fe",
+  "Que Diosito decida",
+  "Girandooo...",
+] as const;
 const instructionPages = [
   {
     eyebrow: "Guia rapida",
@@ -53,27 +90,42 @@ export class RomanticRouletteApp {
   private wasJackpotActive = false;
   private surpriseTimers: number[] = [];
   private shopScrollTop = 0;
-  private activeArcadeUpgradeId: string | null = null;
   private lastRenderedComboPulseToken = 0;
-  private readonly handleDocumentClick = (event: MouseEvent): void => {
-    if (!this.activeArcadeUpgradeId) {
-      return;
-    }
-
-    const target = event.target;
-    if (!(target instanceof Element)) {
-      return;
-    }
-
-    if (target.closest("[data-action='upgrade-tooltip']") || target.closest(".arcade-upgrade-tooltip")) {
-      return;
-    }
-
-    this.activeArcadeUpgradeId = null;
-    this.render(store.getState());
-  };
+  private lastPointerUpgradeSignature = "";
+  private lastSessionLockedForToday = false;
 
   constructor(private root: HTMLElement) {}
+
+  private getComboBreakCopy(state: GameState): string {
+    return comboBreakCopies[state.spinCount % comboBreakCopies.length];
+  }
+
+  private getSpinCopy(state: GameState): string {
+    return spinCopies[state.spinCount % spinCopies.length];
+  }
+
+  private formatLocalDateTime(timestamp = Date.now()): string {
+    return new Intl.DateTimeFormat("es-GT", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(timestamp);
+  }
+
+  private handleSessionEndEmail(state: GameState): void {
+    const justLocked = state.sessionLockedForToday && !this.lastSessionLockedForToday;
+    this.lastSessionLockedForToday = state.sessionLockedForToday;
+
+    if (!justLocked || !state.sessionLockDateKey || state.sessionEndEmailSentForDateKey === state.sessionLockDateKey) {
+      return;
+    }
+
+    store.markSessionEndEmailSent(state.sessionLockDateKey);
+    void sendSessionFinishedEmail({
+      finishedAt: this.formatLocalDateTime(),
+      dateKey: state.sessionLockDateKey,
+      metrics: store.getSessionEmailMetrics(),
+    });
+  }
 
   private getCounterCenter(counterName: "coins" | "owed-kisses" | "invested-kisses"): { x: number; y: number } | null {
     const counter = this.uiRoot?.querySelector<HTMLElement>(`[data-counter='${counterName}']`);
@@ -138,6 +190,34 @@ export class RomanticRouletteApp {
     }
   }
 
+  private playJackpotFlyAnimation(): void {
+    if (!this.game) {
+      return;
+    }
+
+    const scene = this.game.scene.getScene("roulette") as RouletteScene | undefined;
+    if (!scene) {
+      return;
+    }
+
+    const latestState = store.getState();
+    if (latestState.lastCoinReward <= 0) {
+      return;
+    }
+
+    const coinsTarget = this.getCounterCenter("coins");
+    if (!coinsTarget) {
+      return;
+    }
+
+    scene.playResourceFlyToCounter({
+      icon: "🪙",
+      amount: latestState.lastCoinReward,
+      color: "#f4b942",
+      targetViewportPoint: coinsTarget,
+    });
+  }
+
   mount(): void {
     this.root.innerHTML = `
       <div class="main-shell">
@@ -155,10 +235,15 @@ export class RomanticRouletteApp {
 
     this.game = createGame(host);
     this.game.scale.resize(Math.max(window.innerWidth, 1), Math.max(window.innerHeight, 1));
-    document.addEventListener("click", this.handleDocumentClick);
     this.lastRenderedComboPulseToken = store.getState().comboPulseToken;
+    store.checkSessionStatus();
+    this.lastSessionLockedForToday = store.getState().sessionLockedForToday;
+    window.setInterval(() => {
+      store.checkSessionStatus();
+    }, 1000);
 
     store.subscribe((state) => {
+      this.handleSessionEndEmail(state);
       audioManager.sync(state);
       this.syncJackpotState(state);
       this.render(state);
@@ -166,9 +251,10 @@ export class RomanticRouletteApp {
   }
 
   async spin(): Promise<void> {
+    store.checkSessionStatus();
     const state = store.getState();
 
-    if (!this.game || state.isSpinning || state.investedKisses <= 0 || state.surpriseModalOpen || state.surpriseStage !== "hidden") {
+    if (!this.game || state.sessionLockedForToday || state.isSpinning || state.investedKisses <= 0 || state.surpriseModalOpen || state.surpriseStage !== "hidden") {
       return;
     }
 
@@ -179,10 +265,16 @@ export class RomanticRouletteApp {
     const scene = this.game.scene.getScene("roulette") as RouletteScene;
     await scene.spinToSegment(segment);
     audioManager.stopSpin();
+    const comboBeforeSpin = store.getState().comboMultiplier;
     const resolution = store.resolveSpin(segment.id);
 
     if (resolution) {
-      const playedSound = audioManager.playTone(resolution.tone, store.getState(), resolution.audioCue);
+      const resolvedState = store.getState();
+      const comboIncreased = resolvedState.comboMultiplier > comboBeforeSpin;
+      const playedSound = audioManager.playTone(resolution.tone, resolvedState, resolution.audioCue);
+      const comboSoundPlayed = comboIncreased
+        ? audioManager.playCombo(resolvedState, resolvedState.comboMultiplier)
+        : false;
       const effectParts = [
         typeof resolution.coinsDelta === "number" ? `monedas +${resolution.coinsDelta}` : null,
         typeof resolution.debtDelta === "number" ? `besos perdidos +${resolution.debtDelta}` : null,
@@ -190,6 +282,7 @@ export class RomanticRouletteApp {
         resolution.setKissShield ? "activa BESO BLINDADO" : null,
         resolution.consumeKissShield ? "bloquea perdida de besos" : null,
         resolution.opensSurprise ? "abre PREMIO SORPRESA" : null,
+        comboIncreased ? `combo x${resolvedState.comboMultiplier}` : null,
       ].filter(Boolean);
 
       console.log("[Ruleta]", {
@@ -197,6 +290,7 @@ export class RomanticRouletteApp {
         efecto: effectParts.length > 0 ? effectParts.join(", ") : "sin cambio numerico directo",
         mensaje: resolution.message,
         sonido: playedSound,
+        sonidoCombo: comboSoundPlayed ? `combo x${resolvedState.comboMultiplier}` : "none",
       });
 
       scene.pulseTone(resolution.tone);
@@ -213,14 +307,16 @@ export class RomanticRouletteApp {
   }
 
   private handlePrimaryAction(): Promise<void> | void {
+    store.checkSessionStatus();
     const state = store.getState();
 
-    if (state.jackpotEnding) {
+    if (state.sessionLockedForToday || state.jackpotEnding) {
       return;
     }
 
     if (state.jackpotActive) {
       store.awardJackpotCoin();
+      this.playJackpotFlyAnimation();
       audioManager.playTone("win", state, "coins");
       return;
     }
@@ -238,6 +334,11 @@ export class RomanticRouletteApp {
       return;
     }
 
+    const sessionRemainingMs = store.getSessionRemainingMs();
+    const sessionRemainingMinutes = Math.floor(sessionRemainingMs / 60_000);
+    const sessionRemainingSeconds = Math.floor((sessionRemainingMs % 60_000) / 1000);
+    const sessionRemainingText = `${sessionRemainingMinutes}m ${`${sessionRemainingSeconds}`.padStart(2, "0")}s`;
+
     const existingShopModal = this.uiRoot.querySelector<HTMLElement>(".shop-modal");
     if (existingShopModal) {
       this.shopScrollTop = existingShopModal.scrollTop;
@@ -245,7 +346,27 @@ export class RomanticRouletteApp {
       this.shopScrollTop = 0;
     }
 
-    const statusTitle = state.jackpotActive
+    const activeUpgrades = store.getActiveArcadeUpgrades().map((upgrade) => ({
+      id: upgrade.id,
+      emoji: upgrade.emoji,
+      name: upgrade.name,
+      tooltipDetail: store.getUpgradeTooltipDetail(upgrade),
+    }));
+    const upgradeSignature = activeUpgrades
+      .map((upgrade) => `${upgrade.id}:${upgrade.tooltipDetail ?? ""}`)
+      .join("|");
+    if (upgradeSignature !== this.lastPointerUpgradeSignature) {
+      const rouletteScene = this.game?.scene.getScene("roulette") as RouletteScene | undefined;
+      if (rouletteScene) {
+        rouletteScene.syncPointerUpgrades(activeUpgrades);
+        this.lastPointerUpgradeSignature = upgradeSignature;
+      }
+    }
+    const statusTitle = state.sessionLockedForToday
+      ? "Sesion terminada"
+      : state.sessionPendingLockUntilComboBreak
+        ? `Combo x${state.comboMultiplier}`
+      : state.jackpotActive
       ? `🎉 Jackpot! +${state.jackpotCoinsWon}`
       : state.jackpotEnding
         ? `🎉 Jackpot! +${state.jackpotCoinsWon}`
@@ -261,8 +382,6 @@ export class RomanticRouletteApp {
           ? "Premio!"
         : state.kissShieldTriggered
           ? "Te salvaste!"
-        : state.kissShieldActive
-          ? "Beso blindado"
         : state.doubleStakeNextSpin
           ? "x2 activo"
         : state.comboMultiplier > 0
@@ -273,14 +392,18 @@ export class RomanticRouletteApp {
             ? "Click en Girar"
             : "Agrega más besos";
 
-    const statusDetail = state.jackpotActive
+    const statusDetail = state.sessionLockedForToday
+      ? "Vuelve mañana para seguir jugando."
+      : state.sessionPendingLockUntilComboBreak
+        ? "Tiempo agotado. Tu combo te mantiene en juego."
+      : state.jackpotActive
       ? `Presiona rapido | ${state.jackpotSecondsLeft}s`
       : state.jackpotEnding
         ? "Jackpot terminando..."
         : state.jackpotQueued
           ? "Tu siguiente giro activara un Jackpot"
         : state.isSpinning
-          ? "La suerte esta decidiendo"
+          ? this.getSpinCopy(state)
         : state.lastCoinLoss > 0 && state.surpriseStage === "hidden"
           ? `Te roba ${state.lastCoinLoss} monedas`
         : state.lastCoinReward > 0 && state.surpriseStage === "hidden"
@@ -289,12 +412,10 @@ export class RomanticRouletteApp {
             : `Premio final: +${state.lastCoinReward} monedas`
         : state.kissShieldTriggered
           ? "Tu escudo beso absorbio la perdida y saliste intacta."
-        : state.kissShieldActive
-          ? "No debes besos en el siguiente giro"
         : state.doubleStakeNextSpin
           ? "Siguiente giro duplica monedas o besos"
         : state.comboMultiplier === 0 && state.comboLastSource === "El combo se rompio."
-          ? "Pierdes el combo 😛"
+          ? this.getComboBreakCopy(state)
         : state.comboMultiplier > 0
           ? `Racha cargada en x${state.comboMultiplier}`
         : state.surpriseStage === "pending" || state.surpriseStage === "choosing" || state.surpriseStage === "revealing" || state.surpriseStage === "revealed"
@@ -302,10 +423,12 @@ export class RomanticRouletteApp {
         : state.multiplierPreview
           ? state.multiplierPreview
           : state.investedKisses > 0
-            ? "Tu siguiente giro te espera"
+            ? `Tiempo restante: ${sessionRemainingText}`
             : "Recarga para seguir jugando";
 
-    const statusMode = state.isSpinning
+    const statusMode = state.sessionLockedForToday
+      ? "is-hot"
+      : state.isSpinning
       ? "is-spinning"
       : state.jackpotEnding || state.jackpotActive || state.jackpotQueued || state.doubleStakeNextSpin
         ? "is-hot"
@@ -317,24 +440,34 @@ export class RomanticRouletteApp {
         ? "is-pulsing-boost"
         : "is-pulsing"
       : "";
+    const shopNeedsAttention = store.hasShopAttention();
 
     this.uiRoot.innerHTML = `
       <header class="top-strip">
-        <div class="icon-counter" data-counter="invested-kisses">
-          <span class="icon-counter__emoji">💋</span>
-          <strong>${state.investedKisses}</strong>
+        <div class="top-strip__counters">
+          <div class="icon-counter" data-counter="invested-kisses">
+            <span class="icon-counter__emoji">💋</span>
+            <strong>${state.investedKisses}</strong>
+          </div>
+          <div class="icon-counter" data-counter="owed-kisses">
+            <span class="icon-counter__emoji">😏</span>
+            <strong>${state.owedKisses}</strong>
+          </div>
+          <div class="icon-counter" data-counter="coins">
+            <span class="icon-counter__emoji">🪙</span>
+            <strong>${state.coins}</strong>
+          </div>
         </div>
-        <div class="icon-counter" data-counter="owed-kisses">
-          <span class="icon-counter__emoji">😏</span>
-          <strong>${state.owedKisses}</strong>
+        <div class="top-strip__shop-box">
+          <button
+            class="shop-trigger ${shopNeedsAttention ? "is-available" : ""}"
+            data-action="shop"
+            aria-label="Tienda"
+            ${state.sessionLockedForToday ? "disabled" : ""}
+          >
+            <span class="shop-trigger__emoji">🎁</span>
+          </button>
         </div>
-        <div class="icon-counter" data-counter="coins">
-          <span class="icon-counter__emoji">🪙</span>
-          <strong>${state.coins}</strong>
-        </div>
-        <button class="icon-counter icon-counter--button" data-action="shop" aria-label="Tienda">
-          <span class="icon-counter__emoji">🎁</span>
-        </button>
       </header>
 
       <aside class="arcade-status ${statusMode} ${comboPulseClass}" aria-live="polite">
@@ -365,7 +498,7 @@ export class RomanticRouletteApp {
         <button
           class="spin-button ${toneClass(state.lastOutcomeTone)}"
           data-action="primary"
-          ${state.isSpinning || state.jackpotEnding || state.surpriseStage !== "hidden" ? "disabled" : ""}
+          ${state.sessionLockedForToday || state.isSpinning || state.jackpotEnding || state.surpriseStage !== "hidden" ? "disabled" : ""}
           aria-label="${state.jackpotActive ? "Jackpot!" : state.investedKisses > 0 ? "Girar" : "Agregar más besos"}"
         >
           <span class="spin-button__emoji">${state.isSpinning ? "✨" : state.jackpotEnding ? "⏳" : state.jackpotActive ? "💥" : state.investedKisses > 0 ? "🎡" : "💋"}</span>
@@ -426,6 +559,8 @@ export class RomanticRouletteApp {
           `
           : ""
       }
+
+      ${this.renderSessionLockModal(state)}
     `;
 
     this.attachEvents();
@@ -532,6 +667,25 @@ export class RomanticRouletteApp {
     `;
   }
 
+  private renderSessionLockModal(state: GameState): string {
+    if (!state.sessionLockedForToday) {
+      return "";
+    }
+
+    return `
+      <div class="modal-scrim session-lock-scrim">
+        <section class="session-lock-modal" aria-label="Sesion terminada">
+          <div class="onboarding-hero">
+            <span class="onboarding-hero__eyebrow">Hasta aqui por hoy</span>
+            <h2>Sesion terminada</h2>
+            <p>${sessionConfig.sessionEndMessage}</p>
+          </div>
+          <p class="session-lock-modal__detail">Tu limite diario es de ${sessionConfig.sessionDurationMinutes} minutos. Mañana se volvera a activar la ruleta.</p>
+        </section>
+      </div>
+    `;
+  }
+
   private renderSurpriseCards(state: GameState): string {
     return `
       <div class="surprise-header">
@@ -560,44 +714,7 @@ export class RomanticRouletteApp {
   }
 
   private renderArcadeUpgrades(): string {
-    const installedUpgrades = store.getActiveArcadeUpgrades();
-
-    if (installedUpgrades.length === 0) {
-      return "";
-    }
-
-    const activeTooltip = installedUpgrades.find((upgrade) => upgrade.id === this.activeArcadeUpgradeId) ?? null;
-
-    return `
-      <div class="arcade-upgrades">
-        <div class="arcade-upgrades__chips">
-          ${installedUpgrades
-            .map(
-              (upgrade) => `
-                <button
-                  class="arcade-upgrade-chip ${this.activeArcadeUpgradeId === upgrade.id ? "is-active" : ""}"
-                  data-action="upgrade-tooltip"
-                  data-upgrade-id="${upgrade.id}"
-                  aria-label="${upgrade.name}"
-                >
-                  <span>${upgrade.emoji}</span>
-                </button>
-              `,
-            )
-            .join("")}
-        </div>
-        ${
-          activeTooltip
-            ? `
-              <div class="arcade-upgrade-tooltip">
-                <strong>${activeTooltip.name}</strong>
-                <span>${activeTooltip.description}</span>
-              </div>
-            `
-            : ""
-        }
-      </div>
-    `;
+    return "";
   }
 
   private renderSurpriseReveal(state: GameState): string {
@@ -903,18 +1020,6 @@ export class RomanticRouletteApp {
       });
     });
 
-    this.uiRoot?.querySelectorAll<HTMLElement>("[data-action='upgrade-tooltip']").forEach((element) => {
-      element.addEventListener("click", () => {
-        const upgradeId = element.dataset.upgradeId;
-        if (!upgradeId) {
-          return;
-        }
-
-        this.activeArcadeUpgradeId = this.activeArcadeUpgradeId === upgradeId ? null : upgradeId;
-        this.render(store.getState());
-      });
-    });
-
     this.uiRoot?.querySelectorAll<HTMLElement>("[data-action='close-shop']").forEach((element) => {
       element.addEventListener("click", () => {
         store.closeShop();
@@ -940,6 +1045,18 @@ export class RomanticRouletteApp {
 
         const reserved = store.reserveReward(rewardId);
         if (reserved) {
+          const reward = rewardCatalog.find((item) => item.id === rewardId);
+          const latestState = store.getState();
+          if (reward) {
+            void sendRewardReservedEmail({
+              rewardName: reward.name,
+              rewardEmoji: reward.emoji,
+              price: reward.price,
+              coinsRemaining: latestState.coins,
+              reservedAt: this.formatLocalDateTime(),
+              lastOutcomeMessage: latestState.lastOutcomeMessage,
+            });
+          }
           audioManager.playTone("special", store.getState(), "purchase");
         }
       });
@@ -1009,9 +1126,6 @@ export class RomanticRouletteApp {
     let segments = store.getWheelSegments();
     if (state.doubleStakeNextSpin) {
       segments = segments.filter((segment) => segment.kind === "coins" || segment.kind === "debt");
-    }
-    if (state.kissShieldActive) {
-      segments = segments.filter((segment) => segment.kind === "coins");
     }
     const debtWeightMultiplier = state.comboMultiplier > 0
       ? 1 + state.comboMultiplier * 0.08
