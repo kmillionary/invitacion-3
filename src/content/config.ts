@@ -342,7 +342,7 @@ export const wheelSegments: WheelSegment[] = [
       tone: "special",
     }),
   },
-  { id: "debt-3", label: "Debes 2 besos", color: "#a53860", weight: 10, kind: "debt", resolve: createDebtResolution(2, "Uy... ese giro vino con deuda traviesa.") },
+  { id: "debt-3", label: "Debes 1 beso", color: "#a53860", weight: 10, kind: "debt", resolve: createDebtResolution(1, "Uy... ese giro vino con deuda traviesa.") },
   { id: "coins-10", label: "+10 monedas", color: "#f9a03f", weight: 10, kind: "coins", resolve: createCoinResolution(10, "Eso ya huele a premio bonito.") },
   {
     id: "surprise",
@@ -376,7 +376,7 @@ export const wheelSegments: WheelSegment[] = [
       tone: "special",
     }),
   },
-  { id: "debt-5-hard", label: "Debes 3 besos", color: "#8d0801", weight: 5, kind: "debt", resolve: createDebtResolution(3, "Debes 3 besos y el combo se rompe.") },
+  { id: "debt-5-hard", label: "Debes 1 beso", color: "#8d0801", weight: 5, kind: "debt", resolve: createDebtResolution(1, "Debes 1 beso y el combo se rompe.") },
 ];
 
 const getCheapestLockedTierTwoRewardId = (state: GameState): string | null => {
