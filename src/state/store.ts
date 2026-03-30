@@ -1,5 +1,5 @@
-import { createSurprisePool, invitationConfig, rewardCatalog, sessionConfig, upgradeCatalog, wheelSegments } from "../content/config";
-import type { GameState, RewardCardViewModel, RewardItem, SpinResolution, SurpriseOption, UpgradeCardViewModel, UpgradeFamily, UpgradeItem, WheelSegment } from "./types";
+import { createSurprisePool, dailyRewardCatalog, invitationConfig, rewardCatalog, sessionConfig, upgradeCatalog, wheelSegments } from "../content/config";
+import type { DailyRewardCardViewModel, DailyRewardItem, GameState, RewardCardViewModel, RewardItem, SpinResolution, SurpriseOption, UpgradeCardViewModel, UpgradeFamily, UpgradeItem, WheelSegment } from "./types";
 
 const STORAGE_KEY = "romantic-roulette-save-v1";
 const LEGACY_UPGRADE_ID_MAP: Record<string, string> = {
@@ -125,6 +125,8 @@ const normalizeWheelSegmentOrder = (order?: string[]): string[] => {
 
 const initialState = (): GameState => ({
   ...createSessionState(),
+  dailyRewardLastClaimDateKey: null,
+  dailyRewardLastClaimDayIndex: null,
   investedKisses: 0,
   owedKisses: 0,
   coins: 0,
@@ -149,7 +151,8 @@ const initialState = (): GameState => ({
   purchasedUpgradeIds: [],
   shopTab: "rewards",
   doubleStakeNextSpin: false,
-  kissShieldActive: false,
+  kissShieldCharges: 0,
+  kissGuardChargeReady: false,
   kissShieldTriggered: false,
   kissShieldSpinProgress: 0,
   lastCoinReward: 0,
@@ -228,6 +231,9 @@ const loadState = (): GameState => {
       .filter((upgradeId, index, collection) => collection.indexOf(upgradeId) === index)
       .filter((upgradeId) => upgradeCatalog.some((upgrade) => upgrade.id === upgradeId));
     const hasSavedShieldState = typeof parsed.kissShieldSpinProgress === "number";
+    const legacyKissShieldActive = typeof (parsed as { kissShieldActive?: unknown }).kissShieldActive === "boolean"
+      ? Boolean((parsed as { kissShieldActive?: boolean }).kissShieldActive)
+      : false;
     return applySessionTimingRules({
       ...initialState(),
       ...parsed,
@@ -239,11 +245,16 @@ const loadState = (): GameState => {
       sessionLockDateKey: parsed.sessionLockDateKey ?? null,
       sessionPendingLockUntilComboBreak: parsed.sessionPendingLockUntilComboBreak ?? false,
       sessionEndEmailSentForDateKey: parsed.sessionEndEmailSentForDateKey ?? null,
+      dailyRewardLastClaimDateKey: parsed.dailyRewardLastClaimDateKey ?? null,
+      dailyRewardLastClaimDayIndex: parsed.dailyRewardLastClaimDayIndex ?? null,
       wheelSegmentOrder: normalizeWheelSegmentOrder(parsed.wheelSegmentOrder),
-      shopTab: parsed.shopTab ?? "rewards",
+      shopTab: parsed.shopTab === "daily-rewards" ? "daily-rewards" : parsed.shopTab ?? "rewards",
       helpOpen: false,
       instructionPage: 0,
-      kissShieldActive: hasSavedShieldState ? parsed.kissShieldActive ?? false : purchasedUpgradeIds.includes("kiss-guard"),
+      kissShieldCharges: parsed.kissShieldCharges ?? 0,
+      kissGuardChargeReady: hasSavedShieldState
+        ? parsed.kissGuardChargeReady ?? legacyKissShieldActive ?? false
+        : purchasedUpgradeIds.includes("kiss-guard"),
       kissShieldTriggered: false,
       kissShieldSpinProgress: hasSavedShieldState ? parsed.kissShieldSpinProgress ?? 0 : 0,
       jackpotQueued: false,
@@ -503,6 +514,53 @@ export class GameStore {
     return reward.price;
   }
 
+  private getDailyRewardByDay(day: number): DailyRewardItem {
+    return dailyRewardCatalog[(day - 1 + dailyRewardCatalog.length) % dailyRewardCatalog.length] ?? dailyRewardCatalog[0];
+  }
+
+  private hasClaimedDailyRewardToday(now = Date.now()): boolean {
+    return this.state.dailyRewardLastClaimDateKey === getLocalDateKey(now);
+  }
+
+  private getNextDailyRewardDayIndex(now = Date.now()): number {
+    if (this.hasClaimedDailyRewardToday(now)) {
+      return this.state.dailyRewardLastClaimDayIndex ?? 1;
+    }
+
+    if (!this.state.dailyRewardLastClaimDayIndex) {
+      return 1;
+    }
+
+    return this.state.dailyRewardLastClaimDayIndex >= dailyRewardCatalog.length
+      ? 1
+      : this.state.dailyRewardLastClaimDayIndex + 1;
+  }
+
+  private buildDailyRewardHelper(reward: DailyRewardItem): string {
+    const parts: string[] = [];
+
+    if (reward.coins) {
+      parts.push(`+${reward.coins} monedas`);
+    }
+    if (reward.kisses) {
+      parts.push(`+${reward.kisses} besos`);
+    }
+    if (reward.shieldCharges) {
+      parts.push(`+${reward.shieldCharges} beso${reward.shieldCharges === 1 ? "" : "s"} blindado${reward.shieldCharges === 1 ? "" : "s"}`);
+    }
+    if (reward.grantsDoubleStake) {
+      parts.push("x2 siguiente giro");
+    }
+    if (reward.grantsJackpot) {
+      parts.push("Jackpot asegurado");
+    }
+    if (reward.opensSurprise) {
+      parts.push("Premio sorpresa");
+    }
+
+    return parts.join(" • ");
+  }
+
   getJackpotDurationSeconds(): number {
     const jackpotLevel = this.getEffectiveUpgradeForFamily("jackpot-extendido")?.level ?? 0;
     if (jackpotLevel >= 2) {
@@ -520,8 +578,16 @@ export class GameStore {
     return Math.round(3750 * multiplier);
   }
 
+  hasKissShieldAvailable(state = this.state): boolean {
+    return state.kissShieldCharges > 0 || state.kissGuardChargeReady;
+  }
+
+  getKissShieldTotalCharges(state = this.state): number {
+    return state.kissShieldCharges + (state.kissGuardChargeReady ? 1 : 0);
+  }
+
   getKissShieldSpinsRemaining(): number {
-    if (!this.state.purchasedUpgradeIds.includes("kiss-guard") || this.state.kissShieldActive) {
+    if (!this.state.purchasedUpgradeIds.includes("kiss-guard") || this.state.kissGuardChargeReady) {
       return 0;
     }
 
@@ -533,12 +599,35 @@ export class GameStore {
       return upgrade.description;
     }
 
-    if (this.state.kissShieldActive) {
-      return "Listo para bloquear una deuda.";
+    const totalCharges = this.getKissShieldTotalCharges();
+
+    if (totalCharges > 0) {
+      if (this.state.kissGuardChargeReady && this.state.kissShieldCharges > 0) {
+        return `Tienes ${totalCharges} besos blindados guardados. Uno viene de la mejora.`;
+      }
+
+      return `Tienes ${totalCharges} ${totalCharges === 1 ? "beso blindado guardado" : "besos blindados guardados"}.`;
     }
 
     const spinsRemaining = this.getKissShieldSpinsRemaining();
     return `Faltan ${spinsRemaining} ${spinsRemaining === 1 ? "giro" : "giros"} para recargarlo.`;
+  }
+
+  getArcadeUpgradeEmoji(upgrade: UpgradeItem, state = this.state): string {
+    if (upgrade.id !== "kiss-guard") {
+      return upgrade.emoji;
+    }
+
+    const totalKissShields = this.getKissShieldTotalCharges(state);
+    if (totalKissShields <= 1) {
+      return "🛡";
+    }
+
+    if (totalKissShields <= 4) {
+      return "🛡".repeat(totalKissShields);
+    }
+
+    return `🛡x${totalKissShields}`;
   }
 
   getActiveArcadeUpgrades(): UpgradeItem[] {
@@ -552,6 +641,13 @@ export class GameStore {
           activeByFamily.set(upgrade.family, upgrade);
         }
       });
+
+    if (this.getKissShieldTotalCharges() > 0 && !activeByFamily.has("kiss-guard")) {
+      const temporaryKissShield = this.getUpgradeById("kiss-guard");
+      if (temporaryKissShield) {
+        activeByFamily.set("kiss-guard", temporaryKissShield);
+      }
+    }
 
     return [...activeByFamily.values()].sort((left, right) => left.price - right.price);
   }
@@ -574,8 +670,9 @@ export class GameStore {
       picoMonedas: state.highestCoinsReached,
       jackpotsActivados: state.totalJackpotsTriggered,
       sorpresasAbiertas: state.totalSurprisesOpened,
-      besoProtectorListo: state.kissShieldActive,
-      besosParaRecargaBesoBlindado: this.getKissShieldSpinsRemaining(),
+      besosBlindadosAcumulados: this.getKissShieldTotalCharges(state),
+      besoBlindadoDeMejoraListo: state.kissGuardChargeReady,
+      girosParaRecargaBesoBlindado: this.getKissShieldSpinsRemaining(),
       mejorasActivas: this.getActiveArcadeUpgrades().map((upgrade) => upgrade.name),
       mejorasCompradas: this.getPurchasedUpgradeItems().map((upgrade) => upgrade.name),
       regalosReservados: state.reservedRewardIds.length,
@@ -618,6 +715,56 @@ export class GameStore {
   startIntro(): void {
     this.refreshSessionState();
     this.setState({ introStarted: true, topLayerVisible: true });
+  }
+
+  claimDailyReward(now = Date.now()): DailyRewardItem | null {
+    this.refreshSessionState(now);
+    if (this.isSessionInteractionBlocked()) {
+      return null;
+    }
+
+    if (this.hasClaimedDailyRewardToday(now)) {
+      return null;
+    }
+
+    const todayKey = getLocalDateKey(now);
+    const rewardDayIndex = this.getNextDailyRewardDayIndex(now);
+    const reward = this.getDailyRewardByDay(rewardDayIndex);
+
+    this.setState((state) => {
+      const coinsEarned = reward.coins ?? 0;
+      const patch: Partial<GameState> = {
+        dailyRewardLastClaimDateKey: todayKey,
+        dailyRewardLastClaimDayIndex: reward.day,
+        coins: state.coins + coinsEarned,
+        totalCoinsEarned: state.totalCoinsEarned + coinsEarned,
+        highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + coinsEarned),
+        investedKisses: state.investedKisses + (reward.kisses ?? 0),
+        kissShieldCharges: state.kissShieldCharges + (reward.shieldCharges ?? 0),
+        doubleStakeNextSpin: reward.grantsDoubleStake ? true : state.doubleStakeNextSpin,
+        jackpotQueued: reward.grantsJackpot ? true : state.jackpotQueued,
+        lastCoinReward: coinsEarned,
+        lastCoinLoss: 0,
+        multiplierPreview: reward.grantsDoubleStake ? "Tu siguiente giro tendra x2." : "",
+        lastOutcomeMessage: `${reward.title}: ${this.buildDailyRewardHelper(reward)}.`,
+        kissShieldTriggered: false,
+        lastOutcomeTone: "special",
+      };
+
+      if (reward.opensSurprise) {
+        patch.currentPrizeOptions = sampleUnique(createSurprisePool(), 3);
+        patch.surpriseModalOpen = true;
+        patch.surpriseStage = "choosing";
+        patch.selectedSurpriseCardIndex = null;
+        patch.revealedSurpriseOption = null;
+        patch.topLayerVisible = true;
+        patch.totalSurprisesOpened = state.totalSurprisesOpened + 1;
+      }
+
+      return patch;
+    });
+
+    return reward;
   }
 
   dismissInstructions(): void {
@@ -877,11 +1024,11 @@ export class GameStore {
 
     const currentState = this.state;
     const shouldAutoChargeKissShield = currentState.purchasedUpgradeIds.includes("kiss-guard")
-      && !currentState.kissShieldActive
+      && !currentState.kissGuardChargeReady
       && currentState.kissShieldSpinProgress + 1 >= KISS_GUARD_SPIN_INTERVAL;
     const resolution = segment.resolve(
       shouldAutoChargeKissShield
-        ? { ...currentState, kissShieldActive: true }
+        ? { ...currentState, kissGuardChargeReady: true }
         : currentState
     );
 
@@ -962,15 +1109,17 @@ export class GameStore {
       }
 
       if (resolution.setKissShield) {
-        patch.kissShieldActive = true;
+        patch.kissShieldCharges = state.kissShieldCharges + 1;
         patch.kissShieldTriggered = false;
-        patch.kissShieldSpinProgress = 0;
       }
 
       if (resolution.consumeKissShield) {
-        patch.kissShieldActive = false;
+        if (state.kissShieldCharges > 0) {
+          patch.kissShieldCharges = state.kissShieldCharges - 1;
+        } else if (state.kissGuardChargeReady) {
+          patch.kissGuardChargeReady = false;
+        }
         patch.kissShieldTriggered = true;
-        patch.kissShieldSpinProgress = 0;
         patch.lastOutcomeMessage = comboMultiplier > 0
           ? `El beso blindado salvo tu racha. Combo x${comboMultiplier}`
           : resolution.message;
@@ -978,16 +1127,16 @@ export class GameStore {
 
       const ownsKissGuard = state.purchasedUpgradeIds.includes("kiss-guard");
       if (ownsKissGuard && !resolution.setKissShield && !resolution.consumeKissShield) {
-        if (state.kissShieldActive) {
+        if (state.kissGuardChargeReady) {
           patch.kissShieldSpinProgress = 0;
         } else if (shouldAutoChargeKissShield) {
-          patch.kissShieldActive = true;
+          patch.kissGuardChargeReady = true;
           patch.kissShieldTriggered = false;
           patch.kissShieldSpinProgress = 0;
         } else {
           const nextProgress = state.kissShieldSpinProgress + 1;
           if (nextProgress >= KISS_GUARD_SPIN_INTERVAL) {
-            patch.kissShieldActive = true;
+            patch.kissGuardChargeReady = true;
             patch.kissShieldSpinProgress = 0;
           } else {
             patch.kissShieldSpinProgress = nextProgress;
@@ -1254,7 +1403,7 @@ export class GameStore {
       coins: state.coins - upgrade.price,
       totalCoinsSpent: state.totalCoinsSpent + upgrade.price,
       purchasedUpgradeIds: this.normalizePurchasedUpgradeIds(upgradeId, state),
-      kissShieldActive: upgradeId === "kiss-guard" ? true : state.kissShieldActive,
+      kissGuardChargeReady: upgradeId === "kiss-guard" ? true : state.kissGuardChargeReady,
       kissShieldTriggered: false,
       kissShieldSpinProgress: upgradeId === "kiss-guard" ? 0 : state.kissShieldSpinProgress,
       lastOutcomeMessage: `${upgrade.name} ya forma parte de tus mejoras.`,
@@ -1366,6 +1515,54 @@ export class GameStore {
     });
   }
 
+  getDailyRewardCards(now = Date.now()): DailyRewardCardViewModel[] {
+    const claimedToday = this.hasClaimedDailyRewardToday(now);
+    const currentDayIndex = this.getNextDailyRewardDayIndex(now);
+
+    return dailyRewardCatalog.map((reward) => {
+      let state: DailyRewardCardViewModel["state"] = "upcoming";
+
+      if (reward.day === currentDayIndex) {
+        state = claimedToday
+          ? "claimed-today"
+          : this.isSessionInteractionBlocked()
+            ? "locked"
+            : "available";
+      } else if (
+        (!claimedToday && reward.day < currentDayIndex)
+        || (claimedToday && reward.day < currentDayIndex)
+      ) {
+        state = "claimed-past";
+      }
+
+      let badgeLabel = "";
+      let helper = reward.description;
+
+      if (state === "available") {
+        badgeLabel = "Hoy";
+        helper = `Lista para reclamar. ${this.buildDailyRewardHelper(reward)}`;
+      } else if (state === "claimed-today") {
+        badgeLabel = "";
+        helper = reward.description;
+      } else if (state === "claimed-past") {
+        badgeLabel = "Completada";
+        helper = "Esta recompensa ya formo parte de tu ciclo actual.";
+      } else if (state === "locked") {
+        badgeLabel = "Bloqueada";
+        helper = "La sesion de hoy ya termino. Vuelve manana para reclamar el siguiente dia.";
+      }
+
+      return {
+        reward,
+        state,
+        isToday: reward.day === currentDayIndex,
+        canClaim: state === "available",
+        badgeLabel,
+        helper,
+      };
+    });
+  }
+
   hasShopAttention(): boolean {
     if (this.isSessionInteractionBlocked()) {
       return false;
@@ -1373,7 +1570,8 @@ export class GameStore {
 
     const hasAvailableReward = this.getRewardCards().some((card) => card.canReserve || card.canClaim);
     const hasAvailableUpgrade = this.getUpgradeCards().some((card) => card.canBuy);
-    return hasAvailableReward || hasAvailableUpgrade;
+    const hasAvailableDailyReward = this.getDailyRewardCards().some((card) => card.canClaim);
+    return hasAvailableReward || hasAvailableUpgrade || hasAvailableDailyReward;
   }
 
   private getRewardCard(reward: RewardItem): RewardCardViewModel {

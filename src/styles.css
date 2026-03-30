@@ -281,6 +281,31 @@ button {
   text-shadow: 0 0 6px rgba(255, 131, 86, 0.2);
 }
 
+.arcade-status__shield-counter {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 210, 120, 0.18);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Courier New", monospace;
+  font-size: 0.74rem;
+  color: #ffd8eb;
+  text-shadow: 0 0 6px rgba(255, 138, 200, 0.2);
+}
+
+.arcade-status__shield-emoji {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.arcade-status__shield-text {
+  line-height: 1.35;
+}
+
 .arcade-status.is-idle .arcade-status__value,
 .arcade-status.is-idle .arcade-status__detail {
   animation: led-blink 0.95s steps(2, end) infinite;
@@ -886,7 +911,7 @@ button {
 
 .shop-tabs {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
 
@@ -929,6 +954,12 @@ button {
   border-color: rgba(125, 58, 173, 0.2);
 }
 
+.shop-card--daily {
+  background:
+    linear-gradient(180deg, rgba(255, 249, 239, 0.98), rgba(255, 241, 228, 0.96));
+  border-color: rgba(222, 168, 86, 0.24);
+}
+
 .shop-card.is-locked {
   background:
     linear-gradient(180deg, rgba(138, 112, 122, 0.34), rgba(104, 79, 92, 0.42));
@@ -950,6 +981,27 @@ button {
   background:
     linear-gradient(180deg, rgba(248, 255, 249, 0.96), rgba(230, 255, 240, 0.94));
   border-color: rgba(51, 162, 105, 0.24);
+}
+
+.shop-card--daily.is-daily-available {
+  box-shadow:
+    0 16px 32px rgba(224, 152, 74, 0.16),
+    0 0 0 4px rgba(255, 218, 152, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.shop-card--daily.is-daily-claimed-today,
+.shop-card--daily.is-daily-claimed-past {
+  background:
+    linear-gradient(180deg, rgba(244, 255, 246, 0.96), rgba(229, 252, 236, 0.94));
+  border-color: rgba(63, 165, 112, 0.22);
+}
+
+.shop-card--daily.is-daily-locked,
+.shop-card--daily.is-daily-upcoming {
+  background:
+    linear-gradient(180deg, rgba(242, 235, 231, 0.94), rgba(229, 218, 214, 0.9));
+  border-color: rgba(126, 88, 99, 0.16);
 }
 
 .shop-card__badge {
@@ -975,6 +1027,10 @@ button {
   background: linear-gradient(135deg, #7c2cff, #ff4f9a);
 }
 
+.shop-card__badge--daily {
+  background: linear-gradient(135deg, #ff9f43, #d84f72);
+}
+
 .shop-card__art {
   position: relative;
   z-index: 1;
@@ -987,6 +1043,12 @@ button {
     linear-gradient(135deg, rgba(255, 210, 199, 0.84), rgba(255, 236, 210, 0.95));
   font-size: 2.75rem;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.shop-card__art--daily {
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.88), transparent 45%),
+    linear-gradient(135deg, rgba(255, 228, 181, 0.96), rgba(255, 197, 167, 0.94));
 }
 
 .shop-card__title {
@@ -1026,6 +1088,10 @@ button {
   opacity: 0.72;
   background: linear-gradient(135deg, rgba(182, 137, 151, 0.95), rgba(152, 109, 122, 0.95));
   box-shadow: none;
+}
+
+.shop-card__button--daily {
+  margin-top: auto;
 }
 
 .surprise-experience {

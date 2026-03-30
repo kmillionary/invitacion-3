@@ -1,4 +1,5 @@
 import type {
+  DailyRewardItem,
   GameState,
   InvitationConfig,
   RewardItem,
@@ -22,6 +23,86 @@ export const sessionConfig = {
   sessionDurationMinutes: 30,
   sessionEndMessage: "Tu sesion de hoy ha terminado! regresa mañana para más premios.",
 } as const;
+
+export const dailyRewardCatalog: DailyRewardItem[] = [
+  {
+    day: 1,
+    emoji: "🪙",
+    title: "Monedas suaves",
+    description: "Empieza el ciclo con 25 monedas gratis.",
+    coins: 25,
+  },
+  {
+    day: 2,
+    emoji: "🛡",
+    title: "Beso blindado",
+    description: "Suma 1 beso blindado y 50 monedas al inventario.",
+    coins: 50,
+    shieldCharges: 1,
+  },
+  {
+    day: 3,
+    emoji: "🎁",
+    title: "Sorpresa dulce",
+    description: "Abre un premio sorpresa al instante y te da 100 monedas.",
+    coins: 100,
+    opensSurprise: true,
+  },
+  {
+    day: 4,
+    emoji: "💰",
+    title: "Dia dorado",
+    description: "Recoge 200 monedas para acercarte a la tienda.",
+    coins: 200,
+  },
+  {
+    day: 5,
+    emoji: "👑",
+    title: "Jackpot de bolsillo",
+    description: "Te llevas 500 monedas de golpe.",
+    coins: 500,
+  },
+  {
+    day: 6,
+    emoji: "🛡🛡",
+    title: "Doble defensa",
+    description: "Añade 2 besos blindados a tu inventario.",
+    shieldCharges: 2,
+  },
+  {
+    day: 7,
+    emoji: "✨",
+    title: "Racha brillante",
+    description: "Activa x2 en tu siguiente giro y suma 75 monedas.",
+    coins: 75,
+    grantsDoubleStake: true,
+  },
+  {
+    day: 8,
+    emoji: "🎉",
+    title: "Jackpot seguro",
+    description: "Tu siguiente giro activa Jackpot y recibes 150 monedas.",
+    coins: 150,
+    grantsJackpot: true,
+  },
+  {
+    day: 9,
+    emoji: "💋",
+    title: "Recarga intensa",
+    description: "Añade 10 besos para jugar y 120 monedas.",
+    coins: 120,
+    kisses: 10,
+  },
+  {
+    day: 10,
+    emoji: "🌟",
+    title: "Super dia",
+    description: "Recibe 300 monedas, 1 beso blindado y x2 para el siguiente giro.",
+    coins: 300,
+    shieldCharges: 1,
+    grantsDoubleStake: true,
+  },
+];
 
 export const rewardCatalog: RewardItem[] = [
   { id: "bolsita-de-cloro", emoji: "🫧", name: "Bolsita de cloro", price: 180, tier: 1, kind: "casual", lockedByDefault: false },
@@ -83,7 +164,7 @@ export const upgradeCatalog: UpgradeItem[] = [
   },
   {
     id: "kiss-guard",
-    emoji: "💋",
+    emoji: "🛡",
     name: "Beso protector",
     description: "Bloquea una deuda cada 7 giros.",
     price: 500,
@@ -246,7 +327,7 @@ const createDebtResolution = (
     const finalAmount = amount * multiplier;
     const formula = multiplier > 1 ? `${amount} besos x 2 = ${finalAmount}` : message;
 
-    if (state.kissShieldActive) {
+    if (state.kissShieldCharges > 0 || state.kissGuardChargeReady) {
       return {
         incrementsCombo: true,
         comboSource: "escudo",
@@ -365,14 +446,14 @@ export const wheelSegments: WheelSegment[] = [
     id: "double-stake",
     label: "Beso blindado",
     color: "#8338ec",
-    weight: 6,
+    weight: 14,
     kind: "modifier",
     resolve: () => ({
       incrementsCombo: true,
       comboSource: "beso blindado",
       setKissShield: true,
       audioCue: "power-up",
-      message: "Tienes un beso blindado listo para salvarte del siguiente tropiezo.",
+      message: "Guardaste un beso blindado mas para el siguiente tropiezo.",
       tone: "special",
     }),
   },
@@ -420,13 +501,13 @@ const getCheapestFreeUpgradeId = (state: GameState): string | null => {
   return upgrade?.id ?? null;
 };
 
-const applyGrantedUpgrade = (state: GameState, upgradeId: string): Pick<GameState, "purchasedUpgradeIds" | "kissShieldActive" | "kissShieldSpinProgress"> => {
+const applyGrantedUpgrade = (state: GameState, upgradeId: string): Pick<GameState, "purchasedUpgradeIds" | "kissGuardChargeReady" | "kissShieldSpinProgress"> => {
   const grantedUpgrade = upgradeCatalog.find((item) => item.id === upgradeId);
 
   if (!grantedUpgrade) {
     return {
       purchasedUpgradeIds: state.purchasedUpgradeIds,
-      kissShieldActive: state.kissShieldActive,
+      kissGuardChargeReady: state.kissGuardChargeReady,
       kissShieldSpinProgress: state.kissShieldSpinProgress,
     };
   }
@@ -445,7 +526,7 @@ const applyGrantedUpgrade = (state: GameState, upgradeId: string): Pick<GameStat
 
   return {
     purchasedUpgradeIds,
-    kissShieldActive: grantedUpgrade.id === "kiss-guard" ? true : state.kissShieldActive,
+    kissGuardChargeReady: grantedUpgrade.id === "kiss-guard" ? true : state.kissGuardChargeReady,
     kissShieldSpinProgress: grantedUpgrade.id === "kiss-guard" ? 0 : state.kissShieldSpinProgress,
   };
 };

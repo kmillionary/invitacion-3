@@ -4,7 +4,7 @@ import { rewardCatalog, sessionConfig } from "../content/config";
 import { createGame } from "../game/createGame";
 import { sendRewardReservedEmail, sendSessionFinishedEmail } from "../services/mailer";
 import { store } from "../state/store";
-import type { GameState, RewardCardViewModel, UpgradeCardViewModel } from "../state/types";
+import type { DailyRewardCardViewModel, GameState, RewardCardViewModel, UpgradeCardViewModel } from "../state/types";
 import { RouletteScene } from "../game/RouletteScene";
 
 const toneClass = (tone: GameState["lastOutcomeTone"]): string => `tone-${tone}`;
@@ -62,7 +62,7 @@ const instructionPages = [
       "🪙 Monedas: ganas premio.",
       "😏 Deuda: te quita 1 o 2 besos.",
       "🎁 Sorpresa: sale algo especial.",
-      "💋 Beso blindado: te protege una vez.",
+      "🛡 Beso blindado: te protege una vez.",
       "x2 Multiplicador: el siguiente giro pega mas fuerte.",
       "🦹 Robamonedas: te quita monedas.",
       "🎡 Es el boton para girar.",
@@ -351,12 +351,12 @@ export class RomanticRouletteApp {
 
     const activeUpgrades = store.getActiveArcadeUpgrades().map((upgrade) => ({
       id: upgrade.id,
-      emoji: upgrade.emoji,
+      emoji: store.getArcadeUpgradeEmoji(upgrade, state),
       name: upgrade.name,
       tooltipDetail: store.getUpgradeTooltipDetail(upgrade),
     }));
     const upgradeSignature = activeUpgrades
-      .map((upgrade) => `${upgrade.id}:${upgrade.tooltipDetail ?? ""}`)
+      .map((upgrade) => `${upgrade.id}:${upgrade.emoji}:${upgrade.tooltipDetail ?? ""}`)
       .join("|");
     if (upgradeSignature !== this.lastPointerUpgradeSignature) {
       const rouletteScene = this.game?.scene.getScene("roulette") as RouletteScene | undefined;
@@ -476,7 +476,7 @@ export class RomanticRouletteApp {
       <aside class="arcade-status ${statusMode} ${comboPulseClass}" aria-live="polite">
         <strong class="arcade-status__value">${statusTitle}</strong>
         <span class="arcade-status__detail">${statusDetail}</span>
-        ${this.renderArcadeUpgrades()}
+        ${this.renderArcadeUpgrades(state)}
       </aside>
 
       <section class="game-panel">
@@ -716,7 +716,7 @@ export class RomanticRouletteApp {
     `;
   }
 
-  private renderArcadeUpgrades(): string {
+  private renderArcadeUpgrades(_state: GameState): string {
     return "";
   }
 
@@ -740,7 +740,10 @@ export class RomanticRouletteApp {
   private renderShop(state: GameState): string {
     const rewardCards = store.getRewardCards().filter((card) => card.visible || card.isReserved || card.isClaimed);
     const upgradeCards = store.getUpgradeCards();
+    const dailyRewardCards = store.getDailyRewardCards();
     const isRewardsTab = state.shopTab === "rewards";
+    const isUpgradesTab = state.shopTab === "upgrades";
+    const isDailyRewardsTab = state.shopTab === "daily-rewards";
 
     return `
       <div class="modal-scrim shop-scrim" data-action="dismiss-modal" data-dismiss-action="close-shop">
@@ -755,13 +758,16 @@ export class RomanticRouletteApp {
 
           <div class="shop-tabs" role="tablist" aria-label="Secciones de tienda">
             <button class="shop-tab ${isRewardsTab ? "is-active" : ""}" data-action="shop-tab" data-tab="rewards">🎁 Regalos</button>
-            <button class="shop-tab ${!isRewardsTab ? "is-active" : ""}" data-action="shop-tab" data-tab="upgrades">⚡ Mejoras</button>
+            <button class="shop-tab ${isUpgradesTab ? "is-active" : ""}" data-action="shop-tab" data-tab="upgrades">⚡ Mejoras</button>
+            <button class="shop-tab ${isDailyRewardsTab ? "is-active" : ""}" data-action="shop-tab" data-tab="daily-rewards">🎀 Recompensas</button>
           </div>
 
           <div class="shop-grid">
             ${isRewardsTab
               ? rewardCards.map((card) => this.renderShopCard(card, state)).join("")
-              : upgradeCards.map((card) => this.renderUpgradeCard(card)).join("")}
+              : isUpgradesTab
+                ? upgradeCards.map((card) => this.renderUpgradeCard(card)).join("")
+                : dailyRewardCards.map((card) => this.renderDailyRewardCard(card)).join("")}
           </div>
         </section>
       </div>
@@ -837,6 +843,46 @@ export class RomanticRouletteApp {
           data-action="buy-upgrade"
           data-upgrade-id="${upgrade.id}"
           ${(!card.canBuy) ? "disabled" : ""}
+        >
+          ${ctaLabel}
+        </button>
+      </article>
+    `;
+  }
+
+  private renderDailyRewardCard(card: DailyRewardCardViewModel): string {
+    const { reward } = card;
+    const cardStateClass = card.state === "available"
+      ? "is-daily-available"
+      : card.state === "claimed-today"
+        ? "is-daily-claimed-today"
+        : card.state === "claimed-past"
+          ? "is-daily-claimed-past"
+          : card.state === "locked"
+            ? "is-daily-locked"
+            : "is-daily-upcoming";
+    const ctaLabel = card.state === "available"
+      ? "Reclamar"
+      : card.state === "claimed-today"
+        ? "Reclamada"
+        : card.state === "claimed-past"
+          ? "Completada"
+          : card.state === "locked"
+            ? "Bloqueada"
+            : "Pendiente";
+
+    return `
+      <article class="shop-card shop-card--daily ${cardStateClass}">
+        <span class="shop-card__badge shop-card__badge--daily">Dia ${reward.day}</span>
+        <div class="shop-card__art shop-card__art--daily" aria-hidden="true">${reward.emoji}</div>
+        <strong class="shop-card__title">${reward.title}</strong>
+        ${card.badgeLabel ? `<span class="shop-card__price">${card.badgeLabel}</span>` : ""}
+        <p class="shop-card__description">${card.helper}</p>
+        <button
+          class="shop-card__button shop-card__button--daily"
+          data-action="claim-daily-reward"
+          data-daily-reward-day="${reward.day}"
+          ${card.canClaim ? "" : "disabled"}
         >
           ${ctaLabel}
         </button>
@@ -1032,10 +1078,21 @@ export class RomanticRouletteApp {
     this.uiRoot?.querySelectorAll<HTMLElement>("[data-action='shop-tab']").forEach((element) => {
       element.addEventListener("click", () => {
         const tab = element.dataset.tab;
-        if (tab === "rewards" || tab === "upgrades") {
+        if (tab === "rewards" || tab === "upgrades" || tab === "daily-rewards") {
           this.shopScrollTop = 0;
           store.setShopTab(tab);
         }
+      });
+    });
+
+    this.uiRoot?.querySelectorAll<HTMLElement>("[data-action='claim-daily-reward']").forEach((element) => {
+      element.addEventListener("click", () => {
+        const claimedReward = store.claimDailyReward();
+        if (!claimedReward) {
+          return;
+        }
+
+        audioManager.playTone("special", store.getState(), claimedReward.opensSurprise ? "purchase" : "coins");
       });
     });
 

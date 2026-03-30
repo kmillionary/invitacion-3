@@ -35,6 +35,13 @@ export type UpgradeCardStateLabel =
   | "Bloqueada por version superior"
   | "Te faltan monedas";
 
+export type DailyRewardCardState =
+  | "locked"
+  | "available"
+  | "claimed-today"
+  | "claimed-past"
+  | "upcoming";
+
 export type RewardStateLabel =
   | "Disponible"
   | "Te faltan monedas"
@@ -75,6 +82,19 @@ export interface UpgradeItem {
   family: UpgradeFamily;
   level: number;
   accentLabel?: string;
+}
+
+export interface DailyRewardItem {
+  day: number;
+  emoji: string;
+  title: string;
+  description: string;
+  coins?: number;
+  kisses?: number;
+  shieldCharges?: number;
+  grantsDoubleStake?: boolean;
+  grantsJackpot?: boolean;
+  opensSurprise?: boolean;
 }
 
 export interface SurpriseApplyResult extends Partial<GameState> {
@@ -130,6 +150,8 @@ export interface GameState {
   sessionLockDateKey: string | null;
   sessionPendingLockUntilComboBreak: boolean;
   sessionEndEmailSentForDateKey: string | null;
+  dailyRewardLastClaimDateKey: string | null;
+  dailyRewardLastClaimDayIndex: number | null;
   investedKisses: number;
   owedKisses: number;
   coins: number;
@@ -152,9 +174,10 @@ export interface GameState {
   claimedRewardIds: string[];
   unlockedRewardIds: string[];
   purchasedUpgradeIds: string[];
-  shopTab: "rewards" | "upgrades";
+  shopTab: "rewards" | "upgrades" | "daily-rewards";
   doubleStakeNextSpin: boolean;
-  kissShieldActive: boolean;
+  kissShieldCharges: number;
+  kissGuardChargeReady: boolean;
   kissShieldTriggered: boolean;
   kissShieldSpinProgress: number;
   lastCoinReward: number;
@@ -211,5 +234,14 @@ export interface UpgradeCardViewModel {
   canBuy: boolean;
   displayPrice: number;
   stateLabel: UpgradeCardStateLabel;
+  helper: string;
+}
+
+export interface DailyRewardCardViewModel {
+  reward: DailyRewardItem;
+  state: DailyRewardCardState;
+  isToday: boolean;
+  canClaim: boolean;
+  badgeLabel: string;
   helper: string;
 }
