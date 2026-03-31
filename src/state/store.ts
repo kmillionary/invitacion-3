@@ -1,4 +1,4 @@
-import { createSurprisePool, dailyRewardCatalog, energyConfig, invitationConfig, rewardCatalog, upgradeCatalog, wheelSegments } from "../content/config";
+import { createSurprisePool, dailyRewardCatalog, energyConfig, invitationConfig, rewardCatalog, rewardTestingConfig, upgradeCatalog, upgradeTestingConfig, wheelSegments } from "../content/config";
 import type { DailyRewardCardViewModel, DailyRewardItem, GameState, RewardCardViewModel, RewardItem, SpinResolution, SurpriseOption, UpgradeCardViewModel, UpgradeFamily, UpgradeItem, WheelSegment } from "./types";
 
 const STORAGE_KEY = "romantic-roulette-save-v1";
@@ -115,6 +115,7 @@ const initialState = (): GameState => ({
   ...createEnergyState(),
   dailyRewardLastClaimDateKey: null,
   dailyRewardLastClaimDayIndex: null,
+  shopSurpriseLastPurchaseDateKey: null,
   investedKisses: 0,
   owedKisses: 0,
   coins: 0,
@@ -236,6 +237,7 @@ const loadState = (): GameState => {
       energyDepleted: typeof parsed.energyDepleted === "boolean" ? parsed.energyDepleted : false,
       dailyRewardLastClaimDateKey: parsed.dailyRewardLastClaimDateKey ?? null,
       dailyRewardLastClaimDayIndex: parsed.dailyRewardLastClaimDayIndex ?? null,
+      shopSurpriseLastPurchaseDateKey: parsed.shopSurpriseLastPurchaseDateKey ?? null,
       wheelSegmentOrder: normalizeWheelSegmentOrder(parsed.wheelSegmentOrder),
       shopTab: parsed.shopTab === "daily-rewards" ? "daily-rewards" : parsed.shopTab ?? "rewards",
       helpOpen: false,
@@ -399,6 +401,10 @@ export class GameStore {
   }
 
   private isUpgradeBlockedByPrerequisite(targetUpgrade: UpgradeItem, state = this.state): boolean {
+    if (upgradeTestingConfig.enabled && upgradeTestingConfig.unlockAll) {
+      return false;
+    }
+
     const previousUpgrade = this.getPreviousFamilyUpgrade(targetUpgrade);
 
     if (!previousUpgrade) {
@@ -669,15 +675,19 @@ export class GameStore {
     this.setState({ introStarted: true, topLayerVisible: true });
   }
 
-  claimDailyReward(now = Date.now()): DailyRewardItem | null {
+  claimDailyReward(now = Date.now(), forcedDay?: number): DailyRewardItem | null {
     this.refreshEnergyState(now);
 
-    if (this.hasClaimedDailyRewardToday(now)) {
+    const isDailyRewardTestingEnabled = rewardTestingConfig.enabled && rewardTestingConfig.unlockAll;
+
+    if (!isDailyRewardTestingEnabled && this.hasClaimedDailyRewardToday(now)) {
       return null;
     }
 
     const todayKey = getLocalDateKey(now);
-    const rewardDayIndex = this.getNextDailyRewardDayIndex(now);
+    const rewardDayIndex = isDailyRewardTestingEnabled && typeof forcedDay === "number"
+      ? forcedDay
+      : this.getNextDailyRewardDayIndex(now);
     const reward = this.getDailyRewardByDay(rewardDayIndex);
 
     this.setState((state) => {
@@ -685,8 +695,8 @@ export class GameStore {
       const surpriseCount = reward.surpriseCount ?? (reward.opensSurprise ? 1 : 0);
       const opensImmediateSurprise = surpriseCount > 0;
       const patch: Partial<GameState> = {
-        dailyRewardLastClaimDateKey: todayKey,
-        dailyRewardLastClaimDayIndex: reward.day,
+        dailyRewardLastClaimDateKey: isDailyRewardTestingEnabled ? state.dailyRewardLastClaimDateKey : todayKey,
+        dailyRewardLastClaimDayIndex: isDailyRewardTestingEnabled ? state.dailyRewardLastClaimDayIndex : reward.day,
         coins: state.coins + coinsEarned,
         totalCoinsEarned: state.totalCoinsEarned + coinsEarned,
         highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + coinsEarned),
@@ -1320,6 +1330,29 @@ export class GameStore {
     }
 
     const price = this.getRewardPrice(reward);
+    const todayKey = getLocalDateKey();
+
+    if (reward.opensSurpriseOnPurchase) {
+      this.setState((state) => ({
+        coins: state.coins - price,
+        totalCoinsSpent: state.totalCoinsSpent + price,
+        shopSurpriseLastPurchaseDateKey: todayKey,
+        unlockedRewardIds: [...new Set([...state.unlockedRewardIds, rewardId])],
+        currentPrizeOptions: sampleUnique(createSurprisePool(), 3),
+        pendingSurpriseCount: 0,
+        surpriseModalOpen: true,
+        surpriseStage: "choosing",
+        selectedSurpriseCardIndex: null,
+        revealedSurpriseOption: null,
+        topLayerVisible: true,
+        totalSurprisesOpened: state.totalSurprisesOpened + 1,
+        lastOutcomeMessage: "Compraste un Premio sorpresa. Elige una carta misteriosa.",
+        kissShieldTriggered: false,
+        lastOutcomeTone: "special",
+      }));
+
+      return true;
+    }
 
     this.setState((state) => ({
       coins: state.coins - price,
@@ -1338,18 +1371,19 @@ export class GameStore {
     this.refreshEnergyState();
 
     const upgrade = upgradeCatalog.find((item) => item.id === upgradeId);
+    const price = upgrade ? this.getUpgradePrice(upgrade) : 0;
 
     if (!upgrade
       || this.state.purchasedUpgradeIds.includes(upgradeId)
-      || this.state.coins < upgrade.price
+      || this.state.coins < price
       || this.hasHigherFamilyUpgrade(upgrade)
       || this.isUpgradeBlockedByPrerequisite(upgrade)) {
       return false;
     }
 
     this.setState((state) => ({
-      coins: state.coins - upgrade.price,
-      totalCoinsSpent: state.totalCoinsSpent + upgrade.price,
+      coins: state.coins - price,
+      totalCoinsSpent: state.totalCoinsSpent + price,
       purchasedUpgradeIds: this.normalizePurchasedUpgradeIds(upgradeId, state),
       kissGuardChargeReady: upgradeId === "kiss-guard" ? true : state.kissGuardChargeReady,
       kissShieldTriggered: false,
@@ -1413,13 +1447,14 @@ export class GameStore {
 
   getUpgradeCards(): UpgradeCardViewModel[] {
     return upgradeCatalog.map((upgrade) => {
+      const displayPrice = this.getUpgradePrice(upgrade);
       const isPurchased = this.state.purchasedUpgradeIds.includes(upgrade.id);
       const activeUpgrade = this.getEffectiveUpgradeForFamily(upgrade.family);
       const isActive = activeUpgrade?.id === upgrade.id;
       const isSuperseded = Boolean(activeUpgrade && activeUpgrade.level > upgrade.level);
       const isBlockedByPrerequisite = this.isUpgradeBlockedByPrerequisite(upgrade);
       const previousUpgrade = this.getPreviousFamilyUpgrade(upgrade);
-      const canAfford = this.state.coins >= upgrade.price;
+      const canAfford = this.state.coins >= displayPrice;
       const canBuy = !isPurchased && !isSuperseded && !isBlockedByPrerequisite && canAfford;
       const stateLabel = isActive
         ? "Activa"
@@ -1450,14 +1485,33 @@ export class GameStore {
         isBlockedByPrerequisite,
         canAfford,
         canBuy,
-        displayPrice: upgrade.price,
+        displayPrice,
         stateLabel,
         helper,
       };
     });
   }
 
+  private getUpgradePrice(upgrade: UpgradeItem): number {
+    if (upgradeTestingConfig.enabled) {
+      return upgradeTestingConfig.overridePrice;
+    }
+
+    return upgrade.price;
+  }
+
   getDailyRewardCards(now = Date.now()): DailyRewardCardViewModel[] {
+    if (rewardTestingConfig.enabled && rewardTestingConfig.unlockAll) {
+      return dailyRewardCatalog.map((reward) => ({
+        reward,
+        state: "available",
+        isToday: false,
+        canClaim: true,
+        badgeLabel: "Test",
+        helper: `Modo prueba. ${this.buildDailyRewardHelper(reward)}`,
+      }));
+    }
+
     const claimedToday = this.hasClaimedDailyRewardToday(now);
     const currentDayIndex = this.getNextDailyRewardDayIndex(now);
 
@@ -1509,17 +1563,30 @@ export class GameStore {
 
   private getRewardCard(reward: RewardItem): RewardCardViewModel {
     const state = this.state;
-    const unlocked = state.unlockedRewardIds.includes(reward.id) || reward.tier === 1;
-    const reserved = state.reservedRewardIds.includes(reward.id);
-    const claimed = state.claimedRewardIds.includes(reward.id);
+    const surprisePurchasedToday = Boolean(
+      reward.opensSurpriseOnPurchase && state.shopSurpriseLastPurchaseDateKey === getLocalDateKey(),
+    );
+    const unlocked = (rewardTestingConfig.enabled && rewardTestingConfig.unlockAll)
+      || state.unlockedRewardIds.includes(reward.id)
+      || reward.tier === 1;
+    const reserved = reward.repeatable ? false : state.reservedRewardIds.includes(reward.id);
+    const claimed = reward.repeatable ? false : state.claimedRewardIds.includes(reward.id);
     const visible = true;
     const displayPrice = this.getRewardPrice(reward);
     const canAfford = state.coins >= displayPrice;
-    const canReserve = visible && unlocked && !reserved && !claimed && canAfford;
+    const canReserve = visible
+      && unlocked
+      && !reserved
+      && !claimed
+      && canAfford
+      && !surprisePurchasedToday
+      && (!reward.opensSurpriseOnPurchase || !state.surpriseModalOpen);
     const canClaim = reserved && state.acceptedInvitation && !claimed;
 
     let stateLabel: RewardCardViewModel["stateLabel"];
-    let helper = "Los premios desbloqueados solo podran reclamarse si aceptas la invitacion.";
+    let helper = reward.repeatable
+      ? "Compra instantanea. Abre una seleccion de Premio sorpresa al momento."
+      : "Los premios desbloqueados solo podran reclamarse si aceptas la invitacion.";
 
     if (claimed) {
       stateLabel = "Reclamado";
@@ -1535,12 +1602,19 @@ export class GameStore {
     } else if (reserved) {
       stateLabel = "Requiere aceptar la invitacion";
       helper = "Ya lo reservaste. Solo falta aceptar la invitacion para reclamarlo.";
+    } else if (surprisePurchasedToday) {
+      stateLabel = "Disponible";
+      helper = "Ya compraste un Premio sorpresa hoy. Vuelve manana para abrir otro desde la tienda.";
     } else if (canAfford) {
       stateLabel = "Disponible";
-      helper = "Tienes monedas suficientes para reservar este premio.";
+      helper = reward.repeatable
+        ? "Puedes comprarlo todas las veces que quieras."
+        : "Tienes monedas suficientes para reservar este premio.";
     } else {
       stateLabel = "Te faltan monedas";
-      helper = `Te faltan ${displayPrice - state.coins} monedas para reservarlo.`;
+      helper = reward.repeatable
+        ? `Te faltan ${displayPrice - state.coins} monedas para comprar otra sorpresa.`
+        : `Te faltan ${displayPrice - state.coins} monedas para reservarlo.`;
     }
 
     return {
@@ -1548,13 +1622,14 @@ export class GameStore {
       visible,
       displayPrice,
       canAfford,
-      canReserve,
-      canClaim,
-      isReserved: reserved,
-      isClaimed: claimed,
-      stateLabel,
-      helper,
-    };
+        canReserve,
+        canClaim,
+        isReserved: reserved,
+        isClaimed: claimed,
+        isPurchaseLimitedToday: surprisePurchasedToday,
+        stateLabel,
+        helper,
+      };
   }
 }
 

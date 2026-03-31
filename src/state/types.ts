@@ -69,6 +69,8 @@ export interface RewardItem {
   kind: RewardKind;
   lockedByDefault: boolean;
   specialRequirement?: string;
+  repeatable?: boolean;
+  opensSurpriseOnPurchase?: boolean;
 }
 
 export interface UpgradeItem {
@@ -152,6 +154,7 @@ export interface GameState {
   energyDepleted: boolean;
   dailyRewardLastClaimDateKey: string | null;
   dailyRewardLastClaimDayIndex: number | null;
+  shopSurpriseLastPurchaseDateKey: string | null;
   investedKisses: number;
   owedKisses: number;
   coins: number;
@@ -221,6 +224,7 @@ export interface RewardCardViewModel {
   canClaim: boolean;
   isReserved: boolean;
   isClaimed: boolean;
+  isPurchaseLimitedToday?: boolean;
   stateLabel: RewardStateLabel;
   helper: string;
 }

@@ -766,7 +766,7 @@ export class RomanticRouletteApp {
   private renderShopCard(card: RewardCardViewModel, state: GameState): string {
     const { reward } = card;
     const isLocked = card.stateLabel === "Bloqueado";
-    const isBought = card.isReserved || card.isClaimed;
+    const isBought = !reward.repeatable && (card.isReserved || card.isClaimed);
     const needsMoreCoins = !isLocked && !isBought && !card.canAfford;
     const rewardBadge = reward.tier === 3
       ? { label: "Epico", className: "shop-card__badge--epic" }
@@ -776,11 +776,15 @@ export class RomanticRouletteApp {
 
     const ctaLabel = isBought
       ? "Comprado"
+      : card.isPurchaseLimitedToday
+        ? "Mañana"
       : isLocked
         ? "Bloqueado"
         : needsMoreCoins
-          ? `Faltan ${Math.max(reward.price - state.coins, 0)}`
-          : "Comprar";
+          ? `Faltan ${Math.max(card.displayPrice - state.coins, 0)}`
+          : reward.repeatable
+            ? "Abrir"
+            : "Comprar";
 
     return `
       <article class="shop-card ${isLocked ? "is-locked" : ""} ${isBought ? "is-bought" : ""}">
@@ -817,7 +821,7 @@ export class RomanticRouletteApp {
             ? "Bloqueada"
           : card.canAfford
             ? "Comprar"
-            : `Faltan ${upgrade.price - store.getState().coins}`;
+            : `Faltan ${card.displayPrice - store.getState().coins}`;
 
     return `
       <article class="shop-card shop-card--upgrade ${card.isActive || card.isPurchased ? "is-bought" : ""} ${card.isSuperseded || card.isBlockedByPrerequisite ? "is-locked" : ""}">
@@ -1089,7 +1093,8 @@ export class RomanticRouletteApp {
 
     this.uiRoot?.querySelectorAll<HTMLElement>("[data-action='claim-daily-reward']").forEach((element) => {
       element.addEventListener("click", () => {
-        const claimedReward = store.claimDailyReward();
+        const forcedDay = Number(element.dataset.dailyRewardDay);
+        const claimedReward = Number.isFinite(forcedDay) ? store.claimDailyReward(Date.now(), forcedDay) : store.claimDailyReward();
         if (!claimedReward) {
           return;
         }

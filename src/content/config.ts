@@ -28,8 +28,13 @@ export const energyConfig = {
 } as const;
 
 export const upgradeTestingConfig = {
-  enabled: true,
+  enabled: false,
   overridePrice: 1,
+  unlockAll: true,
+} as const;
+
+export const rewardTestingConfig = {
+  enabled: false,
   unlockAll: true,
 } as const;
 
@@ -113,6 +118,18 @@ export const dailyRewardCatalog: DailyRewardItem[] = [
 ];
 
 export const rewardCatalog: RewardItem[] = [
+  {
+    id: "premio-sorpresa-tienda",
+    emoji: "🎁",
+    name: "Premio sorpresa",
+    price: 1000,
+    tier: 1,
+    kind: "misterio",
+    lockedByDefault: false,
+    repeatable: true,
+    opensSurpriseOnPurchase: true,
+    specialRequirement: "Compra instantanea",
+  },
   { id: "bolsita-de-cloro", emoji: "🫧", name: "Bolsita de cloro", price: 180, tier: 1, kind: "casual", lockedByDefault: false },
   { id: "gomitas-osito", emoji: "🧸", name: "Gomitas de osito", price: 220, tier: 1, kind: "casual", lockedByDefault: false },
   { id: "chocolate-tutto", emoji: "🍫", name: "Chocolate Tutto", price: 260, tier: 1, kind: "dulce", lockedByDefault: false },
@@ -542,13 +559,13 @@ const applyGrantedUpgrade = (state: GameState, upgradeId: string): Pick<GameStat
 export const createSurprisePool = (): SurpriseOption[] => [
   {
     id: "surprise-25-coins",
-    label: "25 monedas",
+    label: "100 monedas",
     description: "Una lluvia de monedas cae directo en tu marcador.",
     emoji: "🪙",
     apply: (state) => ({
-      coins: state.coins + 25,
-      lastCoinReward: 25,
-      highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + 25),
+      coins: state.coins + 100,
+      lastCoinReward: 100,
+      highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + 100),
     }),
   },
   {
@@ -562,11 +579,11 @@ export const createSurprisePool = (): SurpriseOption[] => [
 
       if (!rewardId || !reward) {
         return {
-          coins: state.coins + 25,
-          lastCoinReward: 25,
-          highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + 25),
-          revealLabel: "25 monedas",
-          revealDescription: "El nivel 2 ya estaba abierto, asi que la sorpresa se convirtio en 25 monedas.",
+          coins: state.coins + 200,
+          lastCoinReward: 200,
+          highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + 200),
+          revealLabel: "200 monedas",
+          revealDescription: "Tu sorpresa te dio 200 monedas.",
         };
       }
 
@@ -588,11 +605,11 @@ export const createSurprisePool = (): SurpriseOption[] => [
 
       if (!rewardId || !reward) {
         return {
-          coins: state.coins + 25,
-          lastCoinReward: 25,
-          highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + 25),
-          revealLabel: "25 monedas",
-          revealDescription: "El nivel 3 ya estaba abierto, asi que la sorpresa se convirtio en 25 monedas.",
+          coins: state.coins + 300,
+          lastCoinReward: 300,
+          highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + 300),
+          revealLabel: "300 monedas",
+          revealDescription: "Tu sorpresa te dio 300 monedas.",
         };
       }
 
@@ -614,11 +631,11 @@ export const createSurprisePool = (): SurpriseOption[] => [
 
       if (!rewardId || !reward) {
         return {
-          coins: state.coins + 30,
-          lastCoinReward: 30,
-          highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + 30),
-          revealLabel: "30 monedas",
-          revealDescription: "Ya no quedaban regalos de tier 1 o 2 por ganar, asi que recibiste 30 monedas.",
+          coins: state.coins + 400,
+          lastCoinReward: 400,
+          highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + 400),
+          revealLabel: "400 monedas",
+          revealDescription: "Tu sorpresa te dio 400 monedas.",
         };
       }
 
@@ -642,11 +659,9 @@ export const createSurprisePool = (): SurpriseOption[] => [
 
       if (!upgradeId || !upgrade) {
         return {
-          coins: state.coins + 30,
-          lastCoinReward: 30,
-          highestCoinsReached: Math.max(state.highestCoinsReached, state.coins + 30),
-          revealLabel: "30 monedas",
-          revealDescription: "Ya no quedaban mejoras de tier 1 o 2 por ganar, asi que recibiste 30 monedas.",
+          jackpotQueued: true,
+          revealLabel: "Jackpot asegurado",
+          revealDescription: "Tu siguiente giro activara un Jackpot automaticamente.",
         };
       }
 
