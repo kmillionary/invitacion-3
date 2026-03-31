@@ -81,7 +81,6 @@ const syncEnergyState = (state: GameState, now = Date.now()): GameState => {
 
   if (energy >= energyMax) {
     energy = energyMax;
-    energyLastUpdatedAt = now;
   }
 
   return {
