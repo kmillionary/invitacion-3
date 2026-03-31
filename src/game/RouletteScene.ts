@@ -49,6 +49,8 @@ interface BackgroundOrbConfig {
 export class RouletteScene extends Phaser.Scene {
   private wheelContainer?: Phaser.GameObjects.Container;
   private messageText?: Phaser.GameObjects.Text;
+  private sessionLockContainer?: Phaser.GameObjects.Container;
+  private sessionLockDetailText?: Phaser.GameObjects.Text;
   private backgroundGradient?: Phaser.GameObjects.Graphics;
   private backgroundMotionLayer?: Phaser.GameObjects.Container;
   private backgroundOrbs: Phaser.GameObjects.Arc[] = [];
@@ -65,6 +67,10 @@ export class RouletteScene extends Phaser.Scene {
   private readonly pointerAngle = 0;
   private jackpotSpinTween?: Phaser.Tweens.Tween;
   private jackpotBackgroundEvent?: Phaser.Time.TimerEvent;
+  private luckGlowTween?: Phaser.Tweens.Tween;
+  private luckGlowHalo?: Phaser.GameObjects.Arc;
+  private luckOrbitContainer?: Phaser.GameObjects.Container;
+  private luckGlowActive = false;
 
   constructor() {
     super("roulette");
@@ -76,6 +82,7 @@ export class RouletteScene extends Phaser.Scene {
     this.buildWheel();
     this.buildPointer();
     this.buildMessage();
+    this.buildSessionLockSign();
     this.syncPointerUpgrades(
       store.getActiveArcadeUpgrades().map((upgrade) => ({
         id: upgrade.id,
@@ -89,6 +96,7 @@ export class RouletteScene extends Phaser.Scene {
     store.subscribe((state) => {
       this.latestState = state;
       this.refreshMessage(state);
+      this.refreshSessionLockSign(state);
     });
 
     this.input.on("pointerdown", () => {
@@ -127,6 +135,7 @@ export class RouletteScene extends Phaser.Scene {
         ease: "Cubic.easeOut",
         onUpdate: () => this.emitSparkles(),
         onComplete: () => {
+          this.stopLuckGlow();
           const landedIndex = this.getSegmentIndexAtPointer(this.wheelContainer?.rotation ?? targetRotation, segments);
           const normalizedFinalRotation = Phaser.Math.Angle.Normalize(this.wheelContainer?.rotation ?? targetRotation);
 
@@ -160,6 +169,105 @@ export class RouletteScene extends Phaser.Scene {
         },
       });
     });
+  }
+
+  startLuckGlow(level: 1 | 2 | 3): void {
+    if (this.jackpotActiveVisualsRunning() || this.luckGlowActive) {
+      return;
+    }
+
+    this.luckGlowActive = true;
+    const baseColor = level === 3 ? 0x74d66f : level === 2 ? 0x63c864 : 0x56b95d;
+    const haloAlpha = level === 3 ? 0.34 : level === 2 ? 0.34 : 0.22;
+    const haloRadius = this.wheelRadius + (level === 3 ? 34 : level === 2 ? 38 : 26);
+    const haloStroke = level === 3 ? 12 : level === 2 ? 14 : 10;
+    const haloScaleFrom = level === 3 ? 0.96 : level === 2 ? 0.98 : 0.92;
+    const haloScaleTo = level === 3 ? 1.06 : level === 2 ? 1.08 : 1.02;
+
+    this.buildBackground(baseColor);
+    this.luckGlowHalo?.setFillStyle(baseColor, haloAlpha);
+    this.luckGlowHalo?.setStrokeStyle(haloStroke, 0xe7ffcb, haloAlpha + 0.12);
+    this.luckGlowHalo?.setRadius(haloRadius);
+    this.luckGlowHalo?.setScale(haloScaleFrom);
+    this.luckGlowHalo?.setVisible(true);
+    this.setLuckOrbitVisible(level === 3);
+    this.luckGlowTween?.stop();
+    if (this.luckGlowHalo) {
+      this.tweens.killTweensOf(this.luckGlowHalo);
+    }
+    if (this.luckOrbitContainer) {
+      this.tweens.killTweensOf(this.luckOrbitContainer);
+    }
+
+    if (level === 3 && this.luckOrbitContainer) {
+      this.luckOrbitContainer.setRotation(0);
+      this.luckOrbitContainer.setAlpha(0.92);
+      this.luckOrbitContainer.setScale(0.96);
+      this.tweens.add({
+        targets: this.luckOrbitContainer,
+        rotation: FULL_ROTATION,
+        duration: 3200,
+        ease: "Linear",
+        repeat: -1,
+      });
+      this.tweens.add({
+        targets: this.luckOrbitContainer,
+        scale: 1.03,
+        alpha: 1,
+        duration: 520,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+      });
+    }
+
+    this.luckGlowTween = this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 320,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+      onUpdate: (tween) => {
+        const value = tween.getValue() ?? 0;
+        const color = Phaser.Display.Color.Interpolate.ColorWithColor(
+          Phaser.Display.Color.ValueToColor(0xfce8e6),
+          Phaser.Display.Color.ValueToColor(baseColor),
+          100,
+          50 + Math.round(value * 35),
+        );
+        this.buildBackground(Phaser.Display.Color.GetColor(color.r, color.g, color.b));
+        this.luckGlowHalo?.setAlpha(Phaser.Math.Linear(haloAlpha, haloAlpha + 0.16, value));
+        this.luckGlowHalo?.setScale(Phaser.Math.Linear(haloScaleFrom, haloScaleTo, value));
+      },
+    });
+  }
+
+  stopLuckGlow(): void {
+    if (!this.luckGlowActive) {
+      return;
+    }
+
+    this.luckGlowActive = false;
+    this.luckGlowTween?.stop();
+    this.luckGlowTween = undefined;
+    if (this.luckGlowHalo) {
+      this.tweens.killTweensOf(this.luckGlowHalo);
+    }
+    if (this.luckOrbitContainer) {
+      this.tweens.killTweensOf(this.luckOrbitContainer);
+      this.luckOrbitContainer.setRotation(0);
+      this.luckOrbitContainer.setScale(1);
+      this.luckOrbitContainer.setAlpha(0);
+      this.luckOrbitContainer.setVisible(false);
+    }
+    this.luckGlowHalo?.setVisible(false);
+    this.luckGlowHalo?.setAlpha(0);
+    this.luckGlowHalo?.setScale(1);
+
+    if (!this.jackpotActiveVisualsRunning()) {
+      this.buildBackground();
+    }
   }
 
   pulseTone(tone: GameState["lastOutcomeTone"], colorOverride?: number): void {
@@ -220,6 +328,7 @@ export class RouletteScene extends Phaser.Scene {
     this.jackpotSpinTween = undefined;
     this.jackpotBackgroundEvent?.remove(false);
     this.jackpotBackgroundEvent = undefined;
+    this.stopLuckGlow();
     this.buildBackground();
   }
 
@@ -238,6 +347,7 @@ export class RouletteScene extends Phaser.Scene {
     this.jackpotSpinTween = undefined;
     this.jackpotBackgroundEvent?.remove(false);
     this.jackpotBackgroundEvent = undefined;
+    this.stopLuckGlow();
 
     const currentRotation = this.wheelContainer.rotation;
     const targetRotation = currentRotation + FULL_ROTATION * 1.35;
@@ -258,6 +368,62 @@ export class RouletteScene extends Phaser.Scene {
         },
       });
     });
+  }
+
+  playLuckBurst(level: 1 | 2 | 3): void {
+    if (!this.wheelContainer) {
+      return;
+    }
+
+    const burstCount = level === 3 ? 12 : level === 2 ? 9 : 6;
+    const burstRadius = this.wheelRadius * 0.78;
+
+    this.cameras.main.flash(180, 236, 255, 226, false);
+
+    for (let index = 0; index < burstCount; index += 1) {
+      const angle = (FULL_ROTATION / burstCount) * index + Phaser.Math.FloatBetween(-0.12, 0.12);
+      const startRadius = burstRadius * Phaser.Math.FloatBetween(0.28, 0.45);
+      const endRadius = burstRadius + Phaser.Math.Between(12, 42);
+      const startX = this.wheelContainer.x + Math.cos(angle) * startRadius;
+      const startY = this.wheelContainer.y + Math.sin(angle) * startRadius;
+      const endX = this.wheelContainer.x + Math.cos(angle) * endRadius;
+      const endY = this.wheelContainer.y + Math.sin(angle) * endRadius;
+      const clover = this.add.text(startX, startY, "🍀", {
+        fontFamily: "\"Fredoka\", sans-serif",
+        fontSize: `${level === 3 ? 36 : level === 2 ? 31 : 26}px`,
+      });
+      clover.setOrigin(0.5);
+      clover.setDepth(24);
+      clover.setScale(0.82);
+      clover.setAlpha(0);
+
+      this.tweens.add({
+        targets: clover,
+        x: endX,
+        y: endY,
+        alpha: 1,
+        scale: level === 3 ? 1.34 : level === 2 ? 1.2 : 1.12,
+        angle: Phaser.Math.Between(-24, 24),
+        duration: 440 + index * 18,
+        ease: "Cubic.easeOut",
+        onComplete: () => {
+          this.tweens.add({
+            targets: clover,
+            alpha: 0,
+            scale: 0.2,
+            duration: 220,
+            ease: "Quad.easeIn",
+            onComplete: () => {
+              clover.destroy();
+            },
+          });
+        },
+      });
+    }
+  }
+
+  private jackpotActiveVisualsRunning(): boolean {
+    return Boolean(this.jackpotSpinTween || this.jackpotBackgroundEvent);
   }
 
   playResourceFlyToCounter(config: ResourceFlyToCounterConfig): void {
@@ -615,6 +781,28 @@ export class RouletteScene extends Phaser.Scene {
     const segments = store.getWheelSegments();
     const centerX = this.getWheelCenterX();
     const centerY = this.getWheelCenterY();
+    this.luckGlowHalo = this.add.circle(centerX, centerY, this.wheelRadius + 26, 0x63c864, 0);
+    this.luckGlowHalo.setDepth(-1);
+    this.luckGlowHalo.setStrokeStyle(10, 0xe7ffcb, 0);
+    this.luckGlowHalo.setBlendMode(Phaser.BlendModes.SCREEN);
+    this.luckGlowHalo.setVisible(false);
+    this.luckOrbitContainer = this.add.container(centerX, centerY);
+    this.luckOrbitContainer.setDepth(7);
+    this.luckOrbitContainer.setVisible(false);
+    this.luckOrbitContainer.setAlpha(0);
+
+    const orbitRadius = this.wheelRadius + 50;
+    const orbitAngles = [-90, -30, 30, 90, 150, 210];
+    orbitAngles.forEach((angleDeg, index) => {
+      const angle = Phaser.Math.DegToRad(angleDeg);
+      const clover = this.add.text(Math.cos(angle) * orbitRadius, Math.sin(angle) * orbitRadius, "🍀", {
+        fontFamily: "\"Fredoka\", sans-serif",
+        fontSize: index % 2 === 0 ? "36px" : "32px",
+      });
+      clover.setOrigin(0.5);
+      clover.setAngle(index % 2 === 0 ? -12 : 12);
+      this.luckOrbitContainer?.add(clover);
+    });
     this.wheelContainer = this.add.container(centerX, centerY);
 
     const disc = this.add.graphics();
@@ -722,6 +910,108 @@ export class RouletteScene extends Phaser.Scene {
     this.refreshMessage(store.getState());
   }
 
+  private buildSessionLockSign(): void {
+    const signWidth = Math.min(420, this.scale.width - 36);
+    const signHeight = this.scale.width < 720 ? 220 : 244;
+    const bulbCount = 10;
+    const bulbs: Phaser.GameObjects.Arc[] = [];
+    const frame = this.add.graphics();
+    frame.fillStyle(0x5e1530, 0.94);
+    frame.lineStyle(6, 0xffd37a, 0.95);
+    frame.fillRoundedRect(-signWidth / 2, -signHeight / 2, signWidth, signHeight, 32);
+    frame.strokeRoundedRect(-signWidth / 2, -signHeight / 2, signWidth, signHeight, 32);
+
+    const inner = this.add.graphics();
+    inner.fillStyle(0xfff4dc, 0.98);
+    inner.lineStyle(3, 0xffb347, 0.82);
+    inner.fillRoundedRect(-signWidth / 2 + 18, -signHeight / 2 + 18, signWidth - 36, signHeight - 36, 24);
+    inner.strokeRoundedRect(-signWidth / 2 + 18, -signHeight / 2 + 18, signWidth - 36, signHeight - 36, 24);
+
+    for (let index = 0; index < bulbCount; index += 1) {
+      const progress = index / (bulbCount - 1);
+      const x = Phaser.Math.Linear(-signWidth / 2 + 28, signWidth / 2 - 28, progress);
+      const topBulb = this.add.circle(x, -signHeight / 2 + 16, 7, 0xffd166, 1);
+      const bottomBulb = this.add.circle(x, signHeight / 2 - 16, 7, 0xffd166, 1);
+      bulbs.push(topBulb, bottomBulb);
+    }
+
+    const eyebrow = this.add.text(0, -56, "Ruleta del amor", {
+      fontFamily: "\"Avenir Next\", \"Segoe UI\", sans-serif",
+      fontSize: this.scale.width < 720 ? "16px" : "18px",
+      color: "#a44a2f",
+      fontStyle: "bold",
+    }).setOrigin(0.5);
+    eyebrow.setLetterSpacing(3);
+
+    const title = this.add.text(0, -8, "Batería vacía", {
+      fontFamily: "Georgia, serif",
+      fontSize: this.scale.width < 720 ? "32px" : "40px",
+      color: "#7f1734",
+      fontStyle: "bold",
+      align: "center",
+    }).setOrigin(0.5);
+
+    this.sessionLockDetailText = this.add.text(0, 50, "", {
+      fontFamily: "\"Avenir Next\", \"Segoe UI\", sans-serif",
+      fontSize: this.scale.width < 720 ? "13px" : "14px",
+      color: "#6b3240",
+      align: "center",
+      wordWrap: { width: signWidth - 150 },
+      lineSpacing: 1,
+    }).setOrigin(0.5);
+
+    this.sessionLockContainer = this.add.container(
+      this.scale.width / 2,
+      this.getWheelCenterY(),
+      [frame, inner, ...bulbs, eyebrow, title, this.sessionLockDetailText],
+    );
+    this.sessionLockContainer.setDepth(60);
+    this.sessionLockContainer.setVisible(false);
+
+    bulbs.forEach((bulb, index) => {
+      this.tweens.add({
+        targets: bulb,
+        alpha: 0.34,
+        scale: 0.9,
+        duration: 500 + (index % 4) * 90,
+        yoyo: true,
+        repeat: -1,
+        delay: index * 60,
+        ease: "Sine.easeInOut",
+      });
+    });
+
+    this.refreshSessionLockSign(store.getState());
+  }
+
+  private refreshSessionLockSign(state: GameState): void {
+    if (!this.sessionLockContainer || !this.sessionLockDetailText) {
+      return;
+    }
+
+    if (state.energyDepleted && !state.isSpinning && !state.jackpotActive && !state.jackpotEnding) {
+      this.sessionLockDetailText.setText("Regresa más tarde para volver a jugar.");
+      this.sessionLockContainer.setVisible(true);
+      this.messageText?.setVisible(false);
+      this.pointerUpgradeContainer?.setVisible(false);
+      this.pointerUpgradeHalo?.setVisible(false);
+      this.pointerTriangle?.setAlpha(0.22);
+      this.pointerRing?.setAlpha(0.22);
+      this.pointerSparkle?.setAlpha(0.22);
+      this.wheelContainer?.setAlpha(0.3);
+      return;
+    }
+
+    this.sessionLockContainer.setVisible(false);
+    this.messageText?.setVisible(false);
+    this.pointerUpgradeContainer?.setVisible(true);
+    this.pointerTriangle?.setAlpha(1);
+    this.pointerRing?.setAlpha(1);
+    this.pointerSparkle?.setAlpha(1);
+    this.wheelContainer?.setAlpha(1);
+    this.renderPointerUpgradePage(true);
+  }
+
   private refreshMessage(state: GameState): void {
     this.messageText?.setText(state.lastOutcomeMessage);
   }
@@ -792,6 +1082,10 @@ export class RouletteScene extends Phaser.Scene {
     this.buildBackground();
     this.buildBackgroundMotion();
     this.wheelContainer.setPosition(centerX, centerY);
+    this.luckGlowHalo?.setPosition(centerX, centerY);
+    this.luckGlowHalo?.setRadius(this.wheelRadius + 26);
+    this.luckOrbitContainer?.setPosition(centerX, centerY);
+    this.updateLuckOrbitLayout();
     this.messageText.setPosition(width / 2, this.scale.height * 0.12);
     this.messageText.setWordWrapWidth(Math.min(620, width - 48));
     this.pointerUpgradeHalo?.setPosition(pointerX + 22, pointerY);
@@ -799,8 +1093,35 @@ export class RouletteScene extends Phaser.Scene {
     this.pointerRing?.setPosition(pointerX + 22, pointerY);
     this.pointerSparkle?.setPosition(pointerX + 22, pointerY);
     this.pointerUpgradeContainer?.setPosition(centerX, centerY);
+    this.sessionLockContainer?.setPosition(width / 2, centerY);
     this.hidePointerUpgradeTooltip();
     this.renderPointerUpgradePage(true);
+    this.refreshSessionLockSign(store.getState());
+  }
+
+  private setLuckOrbitVisible(visible: boolean): void {
+    if (!this.luckOrbitContainer) {
+      return;
+    }
+
+    this.luckOrbitContainer.setVisible(visible);
+    this.luckOrbitContainer.setAlpha(visible ? 1 : 0);
+  }
+
+  private updateLuckOrbitLayout(): void {
+    if (!this.luckOrbitContainer) {
+      return;
+    }
+
+    const orbitRadius = this.wheelRadius + 50;
+    const orbitAngles = [-90, -30, 30, 90, 150, 210];
+    this.luckOrbitContainer.iterate((child: Phaser.GameObjects.GameObject) => {
+      const clover = child as Phaser.GameObjects.Text;
+      const index = this.luckOrbitContainer?.getIndex(clover) ?? 0;
+      const angle = Phaser.Math.DegToRad(orbitAngles[index] ?? -90);
+      clover.setPosition(Math.cos(angle) * orbitRadius, Math.sin(angle) * orbitRadius);
+      clover.setFontSize(index % 2 === 0 ? 36 : 32);
+    });
   }
 
   private renderPointerUpgradePage(isImmediate: boolean): void {

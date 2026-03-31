@@ -95,6 +95,7 @@ export interface DailyRewardItem {
   grantsDoubleStake?: boolean;
   grantsJackpot?: boolean;
   opensSurprise?: boolean;
+  surpriseCount?: number;
 }
 
 export interface SurpriseApplyResult extends Partial<GameState> {
@@ -143,13 +144,12 @@ export interface SurpriseOption {
 }
 
 export interface GameState {
-  sessionStartedAt: number;
-  sessionEndsAt: number;
-  sessionExpired: boolean;
-  sessionLockedForToday: boolean;
-  sessionLockDateKey: string | null;
-  sessionPendingLockUntilComboBreak: boolean;
-  sessionEndEmailSentForDateKey: string | null;
+  energy: number;
+  energyMax: number;
+  energyPerSpin: number;
+  energyRegenPerMinute: number;
+  energyLastUpdatedAt: number;
+  energyDepleted: boolean;
   dailyRewardLastClaimDateKey: string | null;
   dailyRewardLastClaimDayIndex: number | null;
   investedKisses: number;
@@ -200,6 +200,7 @@ export interface GameState {
   jackpotCoinsWon: number;
   pendingSpinSegmentId: string | null;
   currentPrizeOptions: SurpriseOption[];
+  pendingSurpriseCount: number;
   surpriseStage: "hidden" | "pending" | "choosing" | "revealing" | "revealed";
   selectedSurpriseCardIndex: number | null;
   revealedSurpriseOption: SurpriseOption | null;

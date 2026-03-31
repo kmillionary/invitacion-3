@@ -19,9 +19,18 @@ export const invitationConfig: InvitationConfig = {
   ctaLabel: "Aceptar invitacion",
 };
 
-export const sessionConfig = {
-  sessionDurationMinutes: 30,
-  sessionEndMessage: "Tu sesion de hoy ha terminado! regresa mañana para más premios.",
+export const energyConfig = {
+  energyMax: 100,
+  energyPerSpin: 1,
+  energyRegenPerMinute: 1,
+  energyReadyMessage: "La batería está lista para otro giro.",
+  energyEmptyMessage: "Batería vacía. Espera un momento para volver a girar.",
+} as const;
+
+export const upgradeTestingConfig = {
+  enabled: true,
+  overridePrice: 1,
+  unlockAll: true,
 } as const;
 
 export const dailyRewardCatalog: DailyRewardItem[] = [
@@ -73,34 +82,33 @@ export const dailyRewardCatalog: DailyRewardItem[] = [
     day: 7,
     emoji: "✨",
     title: "Racha brillante",
-    description: "Activa x2 en tu siguiente giro y suma 75 monedas.",
-    coins: 75,
+    description: "Activa x2 en tu siguiente giro y suma 200 monedas.",
+    coins: 200,
     grantsDoubleStake: true,
   },
   {
     day: 8,
     emoji: "🎉",
     title: "Jackpot seguro",
-    description: "Tu siguiente giro activa Jackpot y recibes 150 monedas.",
-    coins: 150,
+    description: "Tu siguiente giro activa Jackpot y suma 200 monedas.",
+    coins: 200,
     grantsJackpot: true,
   },
   {
     day: 9,
-    emoji: "💋",
-    title: "Recarga intensa",
-    description: "Añade 10 besos para jugar y 120 monedas.",
-    coins: 120,
-    kisses: 10,
+    emoji: "🎁🎁",
+    title: "Tu cumple",
+    description: "Sorpresa doble. Abre dos sorpresas seguidas.",
+    surpriseCount: 2,
   },
   {
     day: 10,
     emoji: "🌟",
-    title: "Super dia",
-    description: "Recibe 300 monedas, 1 beso blindado y x2 para el siguiente giro.",
-    coins: 300,
-    shieldCharges: 1,
-    grantsDoubleStake: true,
+    title: "Buen dia",
+    description: "Abre una sorpresa y suma 1000 monedas.",
+    coins: 1000,
+    opensSurprise: true,
+    surpriseCount: 1,
   },
 ];
 
@@ -154,7 +162,7 @@ export const upgradeCatalog: UpgradeItem[] = [
     id: "suerte-1",
     emoji: "🍀",
     name: "Suerte 1",
-    description: "Sube la probabilidad de +5 monedas.",
+    description: "A veces caes en monedas.",
     price: 420,
     tier: 1,
     kind: "suerte",
@@ -226,7 +234,7 @@ export const upgradeCatalog: UpgradeItem[] = [
     id: "suerte-2",
     emoji: "🍀",
     name: "Suerte 2",
-    description: "Sube la probabilidad de +10 monedas.",
+    description: "Caes más seguido en monedas.",
     price: 940,
     tier: 2,
     kind: "suerte",
@@ -286,7 +294,7 @@ export const upgradeCatalog: UpgradeItem[] = [
     id: "suerte-3",
     emoji: "🍀",
     name: "Suerte 3",
-    description: "Sube la probabilidad de +15 monedas.",
+    description: "Muchos giros caen en monedas.",
     price: 1580,
     tier: 3,
     kind: "suerte",

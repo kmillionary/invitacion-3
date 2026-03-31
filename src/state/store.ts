@@ -1,4 +1,4 @@
-import { createSurprisePool, dailyRewardCatalog, invitationConfig, rewardCatalog, sessionConfig, upgradeCatalog, wheelSegments } from "../content/config";
+import { createSurprisePool, dailyRewardCatalog, energyConfig, invitationConfig, rewardCatalog, upgradeCatalog, wheelSegments } from "../content/config";
 import type { DailyRewardCardViewModel, DailyRewardItem, GameState, RewardCardViewModel, RewardItem, SpinResolution, SurpriseOption, UpgradeCardViewModel, UpgradeFamily, UpgradeItem, WheelSegment } from "./types";
 
 const STORAGE_KEY = "romantic-roulette-save-v1";
@@ -13,7 +13,7 @@ const REPLACEABLE_FAMILIES = new Set<UpgradeFamily>([
   "jackpot-extendido",
 ]);
 const KISS_GUARD_SPIN_INTERVAL = 7;
-const SESSION_DURATION_MS = sessionConfig.sessionDurationMinutes * 60_000;
+const ENERGY_REGEN_INTERVAL_MS = 120_000;
 
 const initialUnlockedRewards = rewardCatalog
   .filter((reward) => reward.tier === 1)
@@ -41,69 +41,57 @@ const getLocalDateKey = (timestamp = Date.now()): string => {
   return `${year}-${month}-${day}`;
 };
 
-const createSessionState = (startedAt = Date.now()): Pick<GameState, "sessionStartedAt" | "sessionEndsAt" | "sessionExpired" | "sessionLockedForToday" | "sessionLockDateKey" | "sessionPendingLockUntilComboBreak" | "sessionEndEmailSentForDateKey"> => ({
-  sessionStartedAt: startedAt,
-  sessionEndsAt: startedAt + SESSION_DURATION_MS,
-  sessionExpired: false,
-  sessionLockedForToday: false,
-  sessionLockDateKey: null,
-  sessionPendingLockUntilComboBreak: false,
-  sessionEndEmailSentForDateKey: null,
+const createEnergyState = (updatedAt = Date.now()): Pick<GameState, "energy" | "energyMax" | "energyPerSpin" | "energyRegenPerMinute" | "energyLastUpdatedAt" | "energyDepleted"> => ({
+  energy: energyConfig.energyMax,
+  energyMax: energyConfig.energyMax,
+  energyPerSpin: energyConfig.energyPerSpin,
+  energyRegenPerMinute: energyConfig.energyRegenPerMinute,
+  energyLastUpdatedAt: updatedAt,
+  energyDepleted: false,
 });
 
-const renewDailySession = (state: GameState, now = Date.now()): GameState => ({
-  ...state,
-  ...createSessionState(now),
-});
+const syncEnergyState = (state: GameState, now = Date.now()): GameState => {
+  const energyMax = state.energyMax > 0 ? state.energyMax : energyConfig.energyMax;
+  const energyPerSpin = state.energyPerSpin > 0 ? state.energyPerSpin : energyConfig.energyPerSpin;
+  const energyRegenPerMinute = state.energyRegenPerMinute > 0 ? state.energyRegenPerMinute : energyConfig.energyRegenPerMinute;
+  let energy = Math.min(energyMax, Math.max(0, state.energy));
+  let energyLastUpdatedAt = state.energyLastUpdatedAt > 0 ? state.energyLastUpdatedAt : now;
 
-const applySessionTimingRules = (state: GameState, now = Date.now()): GameState => {
-  const todayKey = getLocalDateKey(now);
-
-  if (state.sessionLockDateKey && state.sessionLockDateKey !== todayKey) {
-    return renewDailySession(state, now);
-  }
-
-  if (state.sessionLockedForToday) {
+  if (state.jackpotActive || state.jackpotEnding) {
     return {
       ...state,
-      sessionExpired: true,
-      sessionLockDateKey: state.sessionLockDateKey ?? todayKey,
-      sessionPendingLockUntilComboBreak: false,
-      shopOpen: false,
-      refillModalOpen: false,
-      invitationOpen: false,
-      surpriseModalOpen: false,
-      topLayerVisible: true,
+      energy,
+      energyMax,
+      energyPerSpin,
+      energyRegenPerMinute,
+      energyLastUpdatedAt: now,
+      energyDepleted: energy < energyPerSpin,
     };
   }
 
-  if (now < state.sessionEndsAt) {
-    return {
-      ...state,
-      sessionExpired: false,
-      sessionPendingLockUntilComboBreak: false,
-    };
+  if (energy < energyMax && now > energyLastUpdatedAt) {
+    const elapsedMs = now - energyLastUpdatedAt;
+    const recoveredTicks = Math.floor(elapsedMs / ENERGY_REGEN_INTERVAL_MS);
+
+    if (recoveredTicks > 0) {
+      energy = Math.min(energyMax, energy + recoveredTicks * energyRegenPerMinute);
+      energyLastUpdatedAt += recoveredTicks * ENERGY_REGEN_INTERVAL_MS;
+    }
   }
 
-  if (state.comboMultiplier > 0) {
-    return {
-      ...state,
-      sessionExpired: true,
-      sessionPendingLockUntilComboBreak: true,
-    };
+  if (energy >= energyMax) {
+    energy = energyMax;
+    energyLastUpdatedAt = now;
   }
 
   return {
     ...state,
-    sessionExpired: true,
-    sessionLockedForToday: true,
-    sessionLockDateKey: todayKey,
-    sessionPendingLockUntilComboBreak: false,
-    shopOpen: false,
-    refillModalOpen: false,
-    invitationOpen: false,
-    surpriseModalOpen: false,
-    topLayerVisible: true,
+    energy,
+    energyMax,
+    energyPerSpin,
+    energyRegenPerMinute,
+    energyLastUpdatedAt,
+    energyDepleted: energy < energyPerSpin,
   };
 };
 
@@ -124,7 +112,7 @@ const normalizeWheelSegmentOrder = (order?: string[]): string[] => {
 };
 
 const initialState = (): GameState => ({
-  ...createSessionState(),
+  ...createEnergyState(),
   dailyRewardLastClaimDateKey: null,
   dailyRewardLastClaimDayIndex: null,
   investedKisses: 0,
@@ -175,6 +163,7 @@ const initialState = (): GameState => ({
   jackpotCoinsWon: 0,
   pendingSpinSegmentId: null,
   currentPrizeOptions: [],
+  pendingSurpriseCount: 0,
   surpriseStage: "hidden",
   selectedSurpriseCardIndex: null,
   revealedSurpriseOption: null,
@@ -203,6 +192,7 @@ const persistableState = (state: GameState): GameState => ({
   kissShieldTriggered: false,
   jackpotQueued: false,
   currentPrizeOptions: [],
+  pendingSurpriseCount: 0,
   surpriseStage: "hidden",
   selectedSurpriseCardIndex: null,
   revealedSurpriseOption: null,
@@ -234,17 +224,16 @@ const loadState = (): GameState => {
     const legacyKissShieldActive = typeof (parsed as { kissShieldActive?: unknown }).kissShieldActive === "boolean"
       ? Boolean((parsed as { kissShieldActive?: boolean }).kissShieldActive)
       : false;
-    return applySessionTimingRules({
+    return syncEnergyState({
       ...initialState(),
       ...parsed,
       purchasedUpgradeIds,
-      sessionStartedAt: parsed.sessionStartedAt ?? Date.now(),
-      sessionEndsAt: parsed.sessionEndsAt ?? ((parsed.sessionStartedAt ?? Date.now()) + SESSION_DURATION_MS),
-      sessionExpired: parsed.sessionExpired ?? false,
-      sessionLockedForToday: parsed.sessionLockedForToday ?? false,
-      sessionLockDateKey: parsed.sessionLockDateKey ?? null,
-      sessionPendingLockUntilComboBreak: parsed.sessionPendingLockUntilComboBreak ?? false,
-      sessionEndEmailSentForDateKey: parsed.sessionEndEmailSentForDateKey ?? null,
+      energy: typeof parsed.energy === "number" ? parsed.energy : energyConfig.energyMax,
+      energyMax: typeof parsed.energyMax === "number" ? parsed.energyMax : energyConfig.energyMax,
+      energyPerSpin: typeof parsed.energyPerSpin === "number" ? parsed.energyPerSpin : energyConfig.energyPerSpin,
+      energyRegenPerMinute: typeof parsed.energyRegenPerMinute === "number" ? parsed.energyRegenPerMinute : energyConfig.energyRegenPerMinute,
+      energyLastUpdatedAt: typeof parsed.energyLastUpdatedAt === "number" ? parsed.energyLastUpdatedAt : Date.now(),
+      energyDepleted: typeof parsed.energyDepleted === "boolean" ? parsed.energyDepleted : false,
       dailyRewardLastClaimDateKey: parsed.dailyRewardLastClaimDateKey ?? null,
       dailyRewardLastClaimDayIndex: parsed.dailyRewardLastClaimDayIndex ?? null,
       wheelSegmentOrder: normalizeWheelSegmentOrder(parsed.wheelSegmentOrder),
@@ -259,6 +248,7 @@ const loadState = (): GameState => {
       kissShieldSpinProgress: hasSavedShieldState ? parsed.kissShieldSpinProgress ?? 0 : 0,
       jackpotQueued: false,
       currentPrizeOptions: [],
+      pendingSurpriseCount: 0,
       surpriseStage: "hidden",
       selectedSurpriseCardIndex: null,
       revealedSurpriseOption: null,
@@ -298,16 +288,19 @@ export class GameStore {
     return this.state;
   }
 
-  getSessionRemainingMs(now = Date.now()): number {
-    if (this.state.sessionLockedForToday) {
+  getEnergySecondsUntilNextCharge(now = Date.now()): number {
+    const state = syncEnergyState(this.state, now);
+
+    if (state.energy >= state.energyMax) {
       return 0;
     }
 
-    return Math.max(0, this.state.sessionEndsAt - now);
+    const elapsedSinceLastTick = Math.max(0, now - state.energyLastUpdatedAt);
+    return Math.max(1, Math.ceil((ENERGY_REGEN_INTERVAL_MS - elapsedSinceLastTick) / 1000));
   }
 
-  checkSessionStatus(now = Date.now()): void {
-    this.refreshSessionState(now);
+  checkEnergyStatus(now = Date.now()): void {
+    this.refreshEnergyState(now);
   }
 
   setState(updater: Partial<GameState> | ((state: GameState) => Partial<GameState>)): void {
@@ -328,8 +321,8 @@ export class GameStore {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistableState(this.state)));
   }
 
-  private refreshSessionState(now = Date.now()): void {
-    const nextState = applySessionTimingRules(this.state, now);
+  private refreshEnergyState(now = Date.now()): void {
+    const nextState = syncEnergyState(this.state, now);
     const currentStateJson = JSON.stringify(this.state);
     const nextStateJson = JSON.stringify(nextState);
 
@@ -343,22 +336,8 @@ export class GameStore {
     this.emit();
   }
 
-  private isSessionInteractionBlocked(state = this.state): boolean {
-    return state.sessionLockedForToday;
-  }
-
-  private finalizePendingSessionLock(): Partial<GameState> {
-    return {
-      sessionExpired: true,
-      sessionLockedForToday: true,
-      sessionLockDateKey: getLocalDateKey(),
-      sessionPendingLockUntilComboBreak: false,
-      topLayerVisible: true,
-      shopOpen: false,
-      refillModalOpen: false,
-      invitationOpen: false,
-      surpriseModalOpen: false,
-    };
+  private canSpendEnergy(state = this.state): boolean {
+    return state.energy >= state.energyPerSpin;
   }
 
   private shouldKeepTopLayerVisible(state: GameState): boolean {
@@ -538,6 +517,7 @@ export class GameStore {
 
   private buildDailyRewardHelper(reward: DailyRewardItem): string {
     const parts: string[] = [];
+    const surpriseCount = reward.surpriseCount ?? (reward.opensSurprise ? 1 : 0);
 
     if (reward.coins) {
       parts.push(`+${reward.coins} monedas`);
@@ -554,8 +534,8 @@ export class GameStore {
     if (reward.grantsJackpot) {
       parts.push("Jackpot asegurado");
     }
-    if (reward.opensSurprise) {
-      parts.push("Premio sorpresa");
+    if (surpriseCount > 0) {
+      parts.push(surpriseCount === 1 ? "1 sorpresa" : `${surpriseCount} sorpresas`);
     }
 
     return parts.join(" • ");
@@ -653,12 +633,14 @@ export class GameStore {
 
   getMetricsSnapshot(): Record<string, unknown> {
     const state = this.state;
-    const elapsedMs = Math.max(0, Date.now() - state.sessionStartedAt);
 
     return {
-      tiempoTotalMs: elapsedMs,
-      tiempoTotalTexto: `${Math.floor(elapsedMs / 60000)}m ${Math.floor((elapsedMs % 60000) / 1000)}s`,
       girosTotales: state.spinCount,
+      energiaActual: state.energy,
+      energiaMaxima: state.energyMax,
+      energiaPorGiro: state.energyPerSpin,
+      energiaPorRecarga: state.energyRegenPerMinute,
+      energiaCadaMinutos: ENERGY_REGEN_INTERVAL_MS / 60_000,
       besosInvertidosTotal: state.committedTotal,
       besosDisponibles: state.investedKisses,
       besosAdeudados: state.owedKisses,
@@ -682,45 +664,13 @@ export class GameStore {
     };
   }
 
-  getSessionEmailMetrics(): Record<string, string> {
-    const snapshot = this.getMetricsSnapshot();
-    return {
-      "Tiempo total": String(snapshot.tiempoTotalTexto),
-      "Giros totales": String(snapshot.girosTotales),
-      "Monedas actuales": String(snapshot.monedasActuales),
-      "Monedas ganadas": String(snapshot.monedasTotalesGanadas),
-      "Monedas gastadas": String(snapshot.monedasTotalesGastadas),
-      "Monedas perdidas": String(snapshot.monedasTotalesPerdidas),
-      "Pico de monedas": String(snapshot.picoMonedas),
-      Jackpots: String(snapshot.jackpotsActivados),
-      Sorpresas: String(snapshot.sorpresasAbiertas),
-      "Regalos reservados": String(snapshot.regalosReservados),
-      "Regalos reclamados": String(snapshot.regalosReclamados),
-      "Mejoras activas": Array.isArray(snapshot.mejorasActivas) ? snapshot.mejorasActivas.join(", ") || "Ninguna" : String(snapshot.mejorasActivas),
-      "Ultimo mensaje": String(snapshot.ultimoMensaje),
-    };
-  }
-
-  markSessionEndEmailSent(dateKey: string): void {
-    if (!dateKey || this.state.sessionEndEmailSentForDateKey === dateKey) {
-      return;
-    }
-
-    this.setState({
-      sessionEndEmailSentForDateKey: dateKey,
-    });
-  }
-
   startIntro(): void {
-    this.refreshSessionState();
+    this.refreshEnergyState();
     this.setState({ introStarted: true, topLayerVisible: true });
   }
 
   claimDailyReward(now = Date.now()): DailyRewardItem | null {
-    this.refreshSessionState(now);
-    if (this.isSessionInteractionBlocked()) {
-      return null;
-    }
+    this.refreshEnergyState(now);
 
     if (this.hasClaimedDailyRewardToday(now)) {
       return null;
@@ -732,6 +682,8 @@ export class GameStore {
 
     this.setState((state) => {
       const coinsEarned = reward.coins ?? 0;
+      const surpriseCount = reward.surpriseCount ?? (reward.opensSurprise ? 1 : 0);
+      const opensImmediateSurprise = surpriseCount > 0;
       const patch: Partial<GameState> = {
         dailyRewardLastClaimDateKey: todayKey,
         dailyRewardLastClaimDayIndex: reward.day,
@@ -744,13 +696,18 @@ export class GameStore {
         jackpotQueued: reward.grantsJackpot ? true : state.jackpotQueued,
         lastCoinReward: coinsEarned,
         lastCoinLoss: 0,
-        multiplierPreview: reward.grantsDoubleStake ? "Tu siguiente giro tendra x2." : "",
+        multiplierPreview: reward.grantsDoubleStake
+          ? "Tu siguiente giro tendra x2."
+          : reward.grantsJackpot
+            ? "Tu siguiente giro activara Jackpot."
+            : "",
         lastOutcomeMessage: `${reward.title}: ${this.buildDailyRewardHelper(reward)}.`,
         kissShieldTriggered: false,
         lastOutcomeTone: "special",
+        pendingSurpriseCount: opensImmediateSurprise ? Math.max(0, surpriseCount - 1) : state.pendingSurpriseCount,
       };
 
-      if (reward.opensSurprise) {
+      if (opensImmediateSurprise) {
         patch.currentPrizeOptions = sampleUnique(createSurprisePool(), 3);
         patch.surpriseModalOpen = true;
         patch.surpriseStage = "choosing";
@@ -810,10 +767,7 @@ export class GameStore {
   }
 
   confirmCommitment(selectedKisses: number, playerName: string): void {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked()) {
-      return;
-    }
+    this.refreshEnergyState();
 
     this.setState((state) => ({
       investedKisses: selectedKisses,
@@ -829,10 +783,7 @@ export class GameStore {
   }
 
   addMoreKisses(amount: number): void {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked()) {
-      return;
-    }
+    this.refreshEnergyState();
 
     this.setState((state) => ({
       investedKisses: state.investedKisses + amount,
@@ -847,10 +798,6 @@ export class GameStore {
   }
 
   startJackpot(seconds: number): void {
-    if (this.isSessionInteractionBlocked()) {
-      return;
-    }
-
     this.setState({
       jackpotActive: true,
       jackpotQueued: false,
@@ -874,7 +821,7 @@ export class GameStore {
   }
 
   awardJackpotCoin(): void {
-    if (!this.state.jackpotActive || this.state.jackpotEnding || this.isSessionInteractionBlocked()) {
+    if (!this.state.jackpotActive || this.state.jackpotEnding) {
       return;
     }
 
@@ -931,10 +878,7 @@ export class GameStore {
   }
 
   openRefillModal(): void {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked()) {
-      return;
-    }
+    this.refreshEnergyState();
 
     this.setState({ refillModalOpen: true, topLayerVisible: true });
   }
@@ -944,10 +888,7 @@ export class GameStore {
   }
 
   openShop(): void {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked()) {
-      return;
-    }
+    this.refreshEnergyState();
 
     this.setState({ shopOpen: true, topLayerVisible: true });
   }
@@ -961,10 +902,7 @@ export class GameStore {
   }
 
   openInvitation(): void {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked()) {
-      return;
-    }
+    this.refreshEnergyState();
 
     this.setState({ invitationOpen: true, topLayerVisible: true });
   }
@@ -982,12 +920,15 @@ export class GameStore {
   }
 
   beginSpin(segmentId: string): void {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked() || this.state.isSpinning || this.state.investedKisses <= 0 || this.state.surpriseModalOpen || this.state.surpriseStage !== "hidden") {
+    this.refreshEnergyState();
+    if (!this.canSpendEnergy() || this.state.isSpinning || this.state.investedKisses <= 0 || this.state.surpriseModalOpen || this.state.surpriseStage !== "hidden") {
       return;
     }
 
     this.setState((state) => ({
+      energy: Math.max(0, state.energy - state.energyPerSpin),
+      energyDepleted: state.energy - state.energyPerSpin < state.energyPerSpin,
+      energyLastUpdatedAt: Date.now(),
       isSpinning: true,
       spinCount: state.spinCount + 1,
       pendingSpinSegmentId: segmentId,
@@ -999,7 +940,7 @@ export class GameStore {
   }
 
   resolveSpin(segmentId: string): SpinResolution | null {
-    this.refreshSessionState();
+    this.refreshEnergyState();
     const segment = this.state.jackpotQueued
       ? {
           id: "queued-jackpot",
@@ -1164,14 +1105,10 @@ export class GameStore {
         patch.topLayerVisible = true;
       }
 
-      if (state.sessionPendingLockUntilComboBreak && comboMultiplier === 0) {
-        Object.assign(patch, this.finalizePendingSessionLock());
-      }
-
       return patch;
     });
 
-    this.refreshSessionState();
+    this.refreshEnergyState();
 
     return resolution;
   }
@@ -1206,8 +1143,8 @@ export class GameStore {
   }
 
   openSurpriseSelection(): void {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked() || this.state.currentPrizeOptions.length === 0 || this.state.surpriseStage !== "pending") {
+    this.refreshEnergyState();
+    if (this.state.currentPrizeOptions.length === 0 || this.state.surpriseStage !== "pending") {
       return;
     }
 
@@ -1222,8 +1159,8 @@ export class GameStore {
   }
 
   selectSurpriseCard(cardIndex: number): SurpriseOption | null {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked() || this.state.surpriseStage !== "choosing") {
+    this.refreshEnergyState();
+    if (this.state.surpriseStage !== "choosing") {
       return null;
     }
 
@@ -1339,21 +1276,36 @@ export class GameStore {
   }
 
   closeSurpriseExperience(): void {
-    this.setState({
-      surpriseModalOpen: false,
-      surpriseStage: "hidden",
-      currentPrizeOptions: [],
-      selectedSurpriseCardIndex: null,
-      revealedSurpriseOption: null,
-      topLayerVisible: false,
+    this.setState((state) => {
+      if (state.pendingSurpriseCount > 0) {
+        return {
+          currentPrizeOptions: sampleUnique(createSurprisePool(), 3),
+          pendingSurpriseCount: state.pendingSurpriseCount - 1,
+          surpriseModalOpen: true,
+          surpriseStage: "choosing",
+          selectedSurpriseCardIndex: null,
+          revealedSurpriseOption: null,
+          topLayerVisible: true,
+          totalSurprisesOpened: state.totalSurprisesOpened + 1,
+          lastOutcomeMessage: "Otra sorpresa te esta esperando.",
+          lastOutcomeTone: "special",
+        };
+      }
+
+      return {
+        surpriseModalOpen: false,
+        surpriseStage: "hidden",
+        currentPrizeOptions: [],
+        pendingSurpriseCount: 0,
+        selectedSurpriseCardIndex: null,
+        revealedSurpriseOption: null,
+        topLayerVisible: false,
+      };
     });
   }
 
   reserveReward(rewardId: string): boolean {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked()) {
-      return false;
-    }
+    this.refreshEnergyState();
 
     const reward = rewardCatalog.find((item) => item.id === rewardId);
 
@@ -1383,10 +1335,7 @@ export class GameStore {
   }
 
   purchaseUpgrade(upgradeId: string): boolean {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked()) {
-      return false;
-    }
+    this.refreshEnergyState();
 
     const upgrade = upgradeCatalog.find((item) => item.id === upgradeId);
 
@@ -1413,10 +1362,7 @@ export class GameStore {
   }
 
   claimReward(rewardId: string): boolean {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked()) {
-      return false;
-    }
+    this.refreshEnergyState();
 
     const reward = rewardCatalog.find((item) => item.id === rewardId);
 
@@ -1435,10 +1381,7 @@ export class GameStore {
   }
 
   acceptInvitation(): void {
-    this.refreshSessionState();
-    if (this.isSessionInteractionBlocked()) {
-      return;
-    }
+    this.refreshEnergyState();
 
     this.setState({
       acceptedInvitation: true,
@@ -1524,9 +1467,7 @@ export class GameStore {
       if (reward.day === currentDayIndex) {
         state = claimedToday
           ? "claimed-today"
-          : this.isSessionInteractionBlocked()
-            ? "locked"
-            : "available";
+          : "available";
       } else if (
         (!claimedToday && reward.day < currentDayIndex)
         || (claimedToday && reward.day < currentDayIndex)
@@ -1546,9 +1487,6 @@ export class GameStore {
       } else if (state === "claimed-past") {
         badgeLabel = "Completada";
         helper = "Esta recompensa ya formo parte de tu ciclo actual.";
-      } else if (state === "locked") {
-        badgeLabel = "Bloqueada";
-        helper = "La sesion de hoy ya termino. Vuelve manana para reclamar el siguiente dia.";
       }
 
       return {
@@ -1563,10 +1501,6 @@ export class GameStore {
   }
 
   hasShopAttention(): boolean {
-    if (this.isSessionInteractionBlocked()) {
-      return false;
-    }
-
     const hasAvailableReward = this.getRewardCards().some((card) => card.canReserve || card.canClaim);
     const hasAvailableUpgrade = this.getUpgradeCards().some((card) => card.canBuy);
     const hasAvailableDailyReward = this.getDailyRewardCards().some((card) => card.canClaim);
