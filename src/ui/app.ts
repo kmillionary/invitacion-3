@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { audioManager } from "../audio/audioManager";
 import { rewardCatalog } from "../content/config";
 import { createGame } from "../game/createGame";
-import { sendRewardReservedEmail } from "../services/mailer";
+import { sendBatteryDepletedMetricsEmail, sendRewardReservedEmail } from "../services/mailer";
 import { store } from "../state/store";
 import type { DailyRewardCardViewModel, GameState, RewardCardViewModel, UpgradeCardViewModel, WheelSegment } from "../state/types";
 import { RouletteScene } from "../game/RouletteScene";
@@ -100,6 +100,8 @@ export class RomanticRouletteApp {
   private lastPointerUpgradeSignature = "";
   private selectedInitialKisses = 20;
   private commitmentChecked = false;
+  private lastNotifiedReservedRewardIds = new Set<string>();
+  private previousEnergyDepleted = false;
 
   constructor(private root: HTMLElement) {}
 
@@ -226,17 +228,62 @@ export class RomanticRouletteApp {
 
     this.game = createGame(host);
     this.game.scale.resize(Math.max(window.innerWidth, 1), Math.max(window.innerHeight, 1));
-    this.lastRenderedComboPulseToken = store.getState().comboPulseToken;
+    const initialState = store.getState();
+    this.lastRenderedComboPulseToken = initialState.comboPulseToken;
+    this.lastNotifiedReservedRewardIds = new Set(initialState.reservedRewardIds);
+    this.previousEnergyDepleted = initialState.energyDepleted;
     store.checkEnergyStatus();
     window.setInterval(() => {
       store.checkEnergyStatus();
     }, 1000);
 
     store.subscribe((state) => {
+      this.sendReservationNotifications(state);
+      this.sendBatteryDepletedNotification(state);
       audioManager.sync(state);
       this.syncJackpotState(state);
       this.render(state);
     });
+  }
+
+  private sendReservationNotifications(state: GameState): void {
+    const newRewardIds = state.reservedRewardIds.filter((rewardId) => !this.lastNotifiedReservedRewardIds.has(rewardId));
+
+    newRewardIds.forEach((rewardId) => {
+      const reward = rewardCatalog.find((item) => item.id === rewardId);
+
+      if (!reward) {
+        return;
+      }
+
+      const source = state.lastOutcomeMessage.includes("Premio revelado:")
+        ? "Premio sorpresa"
+        : "Compra en tienda";
+
+      void sendRewardReservedEmail({
+        rewardName: reward.name,
+        rewardEmoji: reward.emoji,
+        price: reward.price,
+        coinsRemaining: state.coins,
+        reservedAt: this.formatLocalDateTime(),
+        lastOutcomeMessage: state.lastOutcomeMessage,
+        source,
+      });
+    });
+
+    this.lastNotifiedReservedRewardIds = new Set(state.reservedRewardIds);
+  }
+
+  private sendBatteryDepletedNotification(state: GameState): void {
+    if (!this.previousEnergyDepleted && state.energyDepleted) {
+      void sendBatteryDepletedMetricsEmail({
+        endedAt: this.formatLocalDateTime(),
+        lastOutcomeMessage: state.lastOutcomeMessage,
+        metrics: store.getMetricsSnapshot(),
+      });
+    }
+
+    this.previousEnergyDepleted = state.energyDepleted;
   }
 
   async spin(): Promise<void> {
@@ -1113,18 +1160,6 @@ export class RomanticRouletteApp {
 
         const reserved = store.reserveReward(rewardId);
         if (reserved) {
-          const reward = rewardCatalog.find((item) => item.id === rewardId);
-          const latestState = store.getState();
-          if (reward) {
-            void sendRewardReservedEmail({
-              rewardName: reward.name,
-              rewardEmoji: reward.emoji,
-              price: reward.price,
-              coinsRemaining: latestState.coins,
-              reservedAt: this.formatLocalDateTime(),
-              lastOutcomeMessage: latestState.lastOutcomeMessage,
-            });
-          }
           audioManager.playTone("special", store.getState(), "purchase");
         }
       });
